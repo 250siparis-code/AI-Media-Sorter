@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AI Media Sorter</string>
+    <string name="app_tagline">On-Device Media Classification, Termux Export &amp; Lossless Organizer</string>
+
+    <!-- Bottom / Top Navigation & Steps -->
+    <string name="nav_welcome">Home</string>
+    <string name="nav_folders">Folders</string>
+    <string name="nav_categories">Categories</string>
+    <string name="nav_progress">Analyze</string>
+    <string name="nav_results">Results</string>
+    <string name="nav_details">Details</string>
+    <string name="nav_transfer">Transfer</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Screen 1: Welcome / Home -->
+    <string name="welcome_badge">OFFLINE ON-DEVICE PIPELINE</string>
+    <string name="welcome_title">AI Media Sorter</string>
+    <string name="welcome_description">Analyze photos and videos locally on-device, review classification results, and either export Termux-compatible shell scripts/manifests or organize files safely without cloud uploads.</string>
+    <string name="feature_ai_title">On-Device Visual Classification</string>
+    <string name="feature_ai_desc">Includes a 10 KB heuristic demonstration ONNX projection model for pipeline testing, plus ML Kit Image Labeling and support for importing external MobileCLIP ONNX weights.</string>
+    <string name="feature_folders_title">Termux Script &amp; Manifest Export</string>
+    <string name="feature_folders_desc">Generates classification_report.csv, file_operations.json, move_files.sh, and copy_files.sh with dry-run defaults, SHA-256 checks, and POSIX escaping.</string>
+    <string name="feature_preserve_title">Timestamp &amp; Byte-Exact Preservation</string>
+    <string name="feature_preserve_desc">Preserves original filenames, EXIF metadata, raw media bytes (SHA-256 verified), and filesystem modification timestamps.</string>
+    <string name="welcome_mode_label">Active Workflow Mode</string>
+    <string name="mode_analysis_only">Analysis Mode (Default — Safe Preview &amp; Export Only)</string>
+    <string name="mode_move_enabled">Move Mode (Verified In-App File Organization)</string>
+    <string name="btn_start_sorting">Start Organizing Media</string>
+    <string name="btn_resume_results">View Previous Analysis (%1$d items)</string>
+
+    <!-- Screen 2: Source & Destination -->
+    <string name="folders_title">Source &amp; Destination</string>
+    <string name="folders_subtitle">Select where to scan media from and where categorized folders should be created.</string>
+    <string name="source_folder_label">Source Directory</string>
+    <string name="source_folder_empty">No source folder selected</string>
+    <string name="btn_select_source">Select Source Folder (SAF)</string>
+    <string name="destination_folder_label">Destination Root Directory</string>
+    <string name="destination_folder_empty">No destination folder selected</string>
+    <string name="btn_select_destination">Select Destination Folder (SAF)</string>
+    <string name="folder_loop_error">Safety Error: Destination folder cannot be the same as or inside the source folder.</string>
+    <string name="media_filter_label">Media Types to Process</string>
+    <string name="filter_all_media">Photos &amp; Videos</string>
+    <string name="filter_photos_only">Photos Only</string>
+    <string name="filter_videos_only">Videos Only</string>
+    <string name="scan_subfolders_title">Include Subdirectories</string>
+    <string name="scan_subfolders_desc">Recursively scan nested folders inside the source directory</string>
+    <string name="transfer_operation_label">Default Operation Type</string>
+    <string name="transfer_move">Move Original Files (MOVE)</string>
+    <string name="transfer_copy">Copy Files (COPY)</string>
+    <string name="supported_extensions_label">Supported File Extensions</string>
+    <string name="btn_continue_categories">Continue to Categories</string>
+
+    <!-- Screen 3: Category Management -->
+    <string name="categories_title">Category Management</string>
+    <string name="categories_subtitle">Enable categories, customize visual descriptions, adjust priority, or assign custom folders.</string>
+    <string name="btn_add_category">Add Custom Category</string>
+    <string name="category_priority_fmt">Priority: %1$d</string>
+    <string name="category_subfolder_fmt">Target Subfolder: /%1$s</string>
+    <string name="dialog_add_category_title">New Media Category</string>
+    <string name="dialog_edit_category_title">Edit Category</string>
+    <string name="field_category_name">Category Name</string>
+    <string name="field_category_desc">Visual Content Keywords / Description</string>
+    <string name="field_category_folder">Destination Subfolder Name</string>
+    <string name="field_category_priority">Subject Priority (1 = Low, 10 = High)</string>
+    <string name="btn_save">Save</string>
+    <string name="btn_cancel">Cancel</string>
+    <string name="btn_delete">Delete</string>
+    <string name="btn_start_analysis">Scan &amp; Analyze Media</string>
+
+    <!-- Default Category Names & Descriptions -->
+    <string name="cat_people">People</string>
+    <string name="cat_people_desc">Humans, portraits, selfies, fashion</string>
+    <string name="cat_food">Food</string>
+    <string name="cat_food_desc">Meals, desserts, beverages, plates of food</string>
+    <string name="cat_vehicles">Vehicles</string>
+    <string name="cat_vehicles_desc">Cars, motorcycles, trucks, transportation</string>
+    <string name="cat_animals">Animals</string>
+    <string name="cat_animals_desc">Cats, dogs, birds, wildlife, pets</string>
+    <string name="cat_nature">Nature</string>
+    <string name="cat_nature_desc">Landscapes, forests, mountains, beaches, sky</string>
+    <string name="cat_buildings">Buildings</string>
+    <string name="cat_buildings_desc">Architecture, houses, urban environments, interiors</string>
+    <string name="cat_technology">Technology</string>
+    <string name="cat_technology_desc">Phones, computers, electronics, screens</string>
+    <string name="cat_text">Text</string>
+    <string name="cat_text_desc">Documents, screenshots, receipts, text-heavy images</string>
+    <string name="cat_other">Other</string>
+    <string name="cat_other_desc">Unknown, ambiguous, or unsupported content</string>
+
+    <!-- Screen 4: AI Analysis Progress -->
+    <string name="progress_title">AI Content Analysis</string>
+    <string name="progress_scanning">Scanning storage &amp; verifying unchanged files…</string>
+    <string name="progress_analyzing">Analyzing visual content on-device…</string>
+    <string name="progress_paused">Analysis Paused (Checkpoint Saved)</string>
+    <string name="progress_completed">Analysis Complete</string>
+    <string name="progress_counts_fmt">%1$d / %2$d files processed</string>
+    <string name="progress_current_file">Current File: %1$s</string>
+    <string name="progress_detected_cat">Detected Category: %1$s</string>
+    <string name="progress_video_sampling">Multi-frame video sampling (10%%, 30%%, 50%%, 70%%, 90%%)</string>
+    <string name="btn_pause">Pause</string>
+    <string name="btn_resume">Resume</string>
+    <string name="btn_cancel_analysis">Cancel</string>
+    <string name="btn_view_results">Review Analysis Results</string>
+
+    <!-- Screen 5: Analysis Results & Export Operations -->
+    <string name="results_title">Analysis Results</string>
+    <string name="results_summary_fmt">%1$d classified • %2$d flagged for review</string>
+    <string name="filter_all_categories">All (%1$d)</string>
+    <string name="filter_needs_review">Needs Review (%1$d)</string>
+    <string name="badge_video">VIDEO</string>
+    <string name="badge_photo">PHOTO</string>
+    <string name="badge_review">REVIEW</string>
+    <string name="badge_manual">MANUAL</string>
+    <string name="badge_excluded">EXCLUDED</string>
+    <string name="confidence_calibrated_fmt">Score: %1$d%% (Sim: %2$.2f)</string>
+    <string name="btn_proceed_transfer">In-App File Transfer</string>
+    <string name="btn_quick_reassign">Change Category</string>
+    <string name="checkbox_include_export">Include in Export</string>
+
+    <!-- Export Operations Panel in Analysis Results -->
+    <string name="export_ops_section_title">Export Operations (Termux &amp; Manifests)</string>
+    <string name="export_ops_subtitle">Generate standalone manifests and dry-run-first Termux scripts without moving or deleting any files in-app.</string>
+    <string name="export_ops_included_count_fmt">Files Selected for Export: %1$d / %2$d (SAF-only warnings: %3$d)</string>
+    <string name="export_ops_select_all">Select All Visible</string>
+    <string name="export_ops_deselect_all">Clear Selection</string>
+    <string name="btn_export_op_csv">Export CSV</string>
+    <string name="btn_export_op_json">Export JSON</string>
+    <string name="btn_export_op_move_sh">Export Move Script</string>
+    <string name="btn_export_op_copy_sh">Export Copy Script</string>
+    <string name="btn_export_op_all">Export All (4 Files)</string>
+    <string name="export_ops_result_banner">Generated in %1$s (%2$d files included). Original media files were NOT moved or modified.</string>
+
+    <!-- Screen 6: Media Details -->
+    <string name="details_title">Media Inspection</string>
+    <string name="details_filename">Filename</string>
+    <string name="details_filesize">File Size</string>
+    <string name="details_resolution">Resolution</string>
+    <string name="details_duration">Video Duration</string>
+    <string name="details_last_modified">Filesystem Last Modified</string>
+    <string name="details_exif_date">EXIF Capture Date</string>
+    <string name="details_exif_none">Not embedded in file</string>
+    <string name="details_detected_category">Assigned Category</string>
+    <string name="details_confidence_metrics">Uncalibrated Softmax Score: %1$d%% | Cosine Similarity: %2$.3f | Top-2 Margin: %3$.3f</string>
+    <string name="details_confidence_note">Note: Temperature-scaled softmax scores and cosine similarities are uncalibrated heuristic/ranking scores, not empirically calibrated probabilities.</string>
+    <string name="details_video_frames_title">Multi-Frame Video Classification Breakdown</string>
+    <string name="details_ambiguous_video_warning">Ambiguous multi-scene video detected across sampled timestamps. Please verify category.</string>
+    <string name="btn_change_category">Reassign Category</string>
+    <string name="toggle_exclude_transfer">Exclude this file from transfer &amp; export</string>
+
+    <!-- Screen 7: File Transfer -->
+    <string name="transfer_title">Safe File Transfer</string>
+    <string name="transfer_analysis_mode_banner">Analysis Mode Active: Files will not be moved until you enable Move Mode or confirm execution below.</string>
+    <string name="transfer_stat_total">Total Analyzed</string>
+    <string name="transfer_stat_ready">Ready to Transfer</string>
+    <string name="transfer_stat_review">Needs Review</string>
+    <string name="transfer_stat_excluded">Excluded</string>
+    <string name="transfer_proposed_structure">Proposed Destination Structure</string>
+    <string name="transfer_safety_checklist">Transactional Safety Guarantees: SHA-256 byte verification • Collision protection • Original timestamp verification</string>
+    <string name="btn_start_transfer">Confirm &amp; Execute Transfer</string>
+    <string name="dialog_confirm_transfer_title">Confirm File Operations</string>
+    <string name="dialog_confirm_transfer_msg">Ready to %1$s %2$d files into categorized folders. Originals are never deleted before SHA-256 integrity and timestamp verification.</string>
+    <string name="transfer_result_summary">Succeeded: %1$d | Timestamp Verified: %2$d | Collisions Resolved: %3$d | Failed: %4$d</string>
+
+    <!-- Screen 8: Settings -->
+    <string name="settings_title">Settings &amp; Diagnostics</string>
+    <string name="settings_section_appearance">Language &amp; AMOLED Display</string>
+    <string name="settings_language">Application Language</string>
+    <string name="lang_english">English</string>
+    <string name="lang_turkish">Türkçe (Turkish)</string>
+    <string name="settings_amoled_mode">Pure Black AMOLED Theme (#000000)</string>
+    <string name="settings_section_ai">On-Device AI Model &amp; Inference</string>
+    <string name="settings_ai_engine">Active AI Classification Engine</string>
+    <string name="ai_engine_hybrid">Hybrid Demo ONNX + ML Kit Image Labeling (Offline)</string>
+    <string name="ai_engine_onnx_only">Bundled 10 KB Heuristic Demo ONNX Only</string>
+    <string name="ai_engine_custom_clip">Custom External MobileCLIP ONNX Model</string>
+    <string name="settings_model_info">Bundled Asset: media_visual_embedder.onnx (10 KB Heuristic/Demo Projection Model, Apache-2.0 — import MobileCLIP ONNX for full semantic vision)</string>
+    <string name="btn_import_custom_onnx">Import External .onnx Model File (MobileCLIP)</string>
+    <string name="settings_hw_accel">Enable NNAPI Hardware Acceleration (when supported)</string>
+    <string name="settings_confidence_threshold">Minimum Uncalibrated Score Threshold: %1$d%%</string>
+    <string name="settings_section_safety">File Preservation &amp; Collision Policies</string>
+    <string name="settings_timestamp_policy">Modification Timestamp Policy</string>
+    <string name="ts_policy_best_effort">Restore Timestamp &amp; Report SAF Provider Limitations</string>
+    <string name="ts_policy_fallback_copy">Non-Destructive Fallback (Keep Source if Timestamp Cannot Be Restored)</string>
+    <string name="settings_collision_policy">Duplicate Filename Collision Behavior</string>
+    <string name="collision_rename">Auto-Rename with Suffix (file_1.jpg)</string>
+    <string name="collision_skip">Skip Existing File Without Overwriting</string>
+    <string name="collision_verify_hash">Skip if SHA-256 Matches, Otherwise Auto-Rename</string>
+    <string name="settings_preview_before_move">Require Review Confirmation Before Moving</string>
+    <string name="settings_section_history">Analysis History &amp; Logs Export</string>
+    <string name="btn_export_csv">Export classification_report.csv</string>
+    <string name="btn_export_json">Export file_operations.json</string>
+    <string name="export_success_fmt">Exported to: %1$s</string>
+    <string name="history_empty">No completed operations recorded yet.</string>
+</resources>

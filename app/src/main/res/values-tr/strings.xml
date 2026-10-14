@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AI Media Sorter</string>
+    <string name="app_tagline">Cihaz İçi Medya Sınıflandırma, Termux Dışa Aktarım ve Kayıpsız Düzenleyici</string>
+
+    <!-- Bottom / Top Navigation & Steps -->
+    <string name="nav_welcome">Ana Sayfa</string>
+    <string name="nav_folders">Klasörler</string>
+    <string name="nav_categories">Kategoriler</string>
+    <string name="nav_progress">Analiz</string>
+    <string name="nav_results">Sonuçlar</string>
+    <string name="nav_details">Detaylar</string>
+    <string name="nav_transfer">Taşıma</string>
+    <string name="nav_settings">Ayarlar</string>
+
+    <!-- Screen 1: Welcome / Home -->
+    <string name="welcome_badge">ÇEVRİMDIŞI CİHAZ İÇİ İŞ AKIŞI</string>
+    <string name="welcome_title">AI Media Sorter</string>
+    <string name="welcome_description">Fotoğraf ve videolarınızı cihaz üzerinde analiz edin, sonuçları inceleyin ve dosyaları değiştirmeden Termux uyumlu betikler/manifestolar dışa aktarın veya güvenle klasörlere taşıyın.</string>
+    <string name="feature_ai_title">Cihaz İçi Görsel Sınıflandırma</string>
+    <string name="feature_ai_desc">İş akışı doğrulaması için 10 KB sezgisel (heuristic) demo ONNX projeksiyon modeli, ML Kit Görüntü Etiketleme ve harici MobileCLIP ONNX model desteği içerir.</string>
+    <string name="feature_folders_title">Termux Betik ve Manifesto Dışa Aktarımı</string>
+    <string name="feature_folders_desc">Varsayılan dry-run korumalı, SHA-256 doğrulamalı ve POSIX kaçışlı classification_report.csv, file_operations.json, move_files.sh ve copy_files.sh üretir.</string>
+    <string name="feature_preserve_title">Zaman Damgası ve Birebir Kalite Koruma</string>
+    <string name="feature_preserve_desc">Orijinal dosya adlarını, EXIF verilerini, ham medya baytlarını (SHA-256 doğrulamalı) ve dosya sistemi değiştirilme tarihlerini korur.</string>
+    <string name="welcome_mode_label">Aktif Çalışma Modu</string>
+    <string name="mode_analysis_only">Analiz Modu (Varsayılan — Güvenli Önizleme ve Dışa Aktarım)</string>
+    <string name="mode_move_enabled">Taşıma Modu (Doğrulanmış Uygulama İçi Düzenleme)</string>
+    <string name="btn_start_sorting">Medya Düzenlemeyi Başlat</string>
+    <string name="btn_resume_results">Önceki Analizi Görüntüle (%1$d öğe)</string>
+
+    <!-- Screen 2: Source & Destination -->
+    <string name="folders_title">Kaynak ve Hedef Seçimi</string>
+    <string name="folders_subtitle">Taranacak medya klasörünü ve kategori klasörlerinin oluşturulacağı hedef dizini seçin.</string>
+    <string name="source_folder_label">Kaynak Klasör</string>
+    <string name="source_folder_empty">Kaynak klasör seçilmedi</string>
+    <string name="btn_select_source">Kaynak Klasör Seç (SAF)</string>
+    <string name="destination_folder_label">Hedef Ana Klasör</string>
+    <string name="destination_folder_empty">Hedef klasör seçilmedi</string>
+    <string name="btn_select_destination">Hedef Klasör Seç (SAF)</string>
+    <string name="folder_loop_error">Güvenlik Hatası: Hedef klasör, kaynak klasörle aynı veya kaynak klasörün alt dizini olamaz.</string>
+    <string name="media_filter_label">İşlenecek Medya Türü</string>
+    <string name="filter_all_media">Fotoğraf ve Videolar</string>
+    <string name="filter_photos_only">Yalnızca Fotoğraflar</string>
+    <string name="filter_videos_only">Yalnızca Videolar</string>
+    <string name="scan_subfolders_title">Alt Klasörleri Dahil Et</string>
+    <string name="scan_subfolders_desc">Kaynak klasör içindeki alt dizinleri de özyinelemeli olarak tara</string>
+    <string name="transfer_operation_label">Varsayılan İşlem Türü</string>
+    <string name="transfer_move">Orijinal Dosyaları Taşı (MOVE)</string>
+    <string name="transfer_copy">Dosyaları Kopyala (COPY)</string>
+    <string name="supported_extensions_label">Desteklenen Dosya Uzantıları</string>
+    <string name="btn_continue_categories">Kategorilere Devam Et</string>
+
+    <!-- Screen 3: Category Management -->
+    <string name="categories_title">Kategori Yönetimi</string>
+    <string name="categories_subtitle">Kategorileri etkinleştirin, görsel açıklamaları düzenleyin, öncelik sırasını ve hedef klasörleri ayarlayın.</string>
+    <string name="btn_add_category">Yeni Kategori Ekle</string>
+    <string name="category_priority_fmt">Öncelik: %1$d</string>
+    <string name="category_subfolder_fmt">Hedef Alt Klasör: /%1$s</string>
+    <string name="dialog_add_category_title">Yeni Medya Kategorisi</string>
+    <string name="dialog_edit_category_title">Kategoriyi Düzenle</string>
+    <string name="field_category_name">Kategori Adı</string>
+    <string name="field_category_desc">Görsel İçerik Anahtar Kelimeleri / Açıklama</string>
+    <string name="field_category_folder">Hedef Alt Klasör Adı</string>
+    <string name="field_category_priority">Özne Önceliği (1 = Düşük, 10 = Yüksek)</string>
+    <string name="btn_save">Kaydet</string>
+    <string name="btn_cancel">İptal</string>
+    <string name="btn_delete">Sil</string>
+    <string name="btn_start_analysis">Medyayı Tara ve Analiz Et</string>
+
+    <!-- Default Category Names & Descriptions -->
+    <string name="cat_people">İnsanlar</string>
+    <string name="cat_people_desc">İnsanlar, portreler, özçekimler, moda</string>
+    <string name="cat_food">Yemek</string>
+    <string name="cat_food_desc">Yemekler, tatlılar, içecekler, yemek tabakları</string>
+    <string name="cat_vehicles">Araçlar</string>
+    <string name="cat_vehicles_desc">Arabalar, motosikletler, kamyonlar, ulaşım</string>
+    <string name="cat_animals">Hayvanlar</string>
+    <string name="cat_animals_desc">Kediler, köpekler, kuşlar, vahşi yaşam, evcil hayvanlar</string>
+    <string name="cat_nature">Doğa</string>
+    <string name="cat_nature_desc">Manzaralar, ormanlar, dağlar, plajlar, gökyüzü</string>
+    <string name="cat_buildings">Binalar</string>
+    <string name="cat_buildings_desc">Mimari, evler, şehir ortamları, iç mekanlar</string>
+    <string name="cat_technology">Teknoloji</string>
+    <string name="cat_technology_desc">Telefonlar, bilgisayarlar, elektronik cihazlar, ekranlar</string>
+    <string name="cat_text">Metin ve Belgeler</string>
+    <string name="cat_text_desc">Belgeler, ekran görüntüleri, faturalar, yoğun metin içeren görseller</string>
+    <string name="cat_other">Diğer</string>
+    <string name="cat_other_desc">Bilinmeyen, belirsiz veya desteklenmeyen içerik</string>
+
+    <!-- Screen 4: AI Analysis Progress -->
+    <string name="progress_title">Yapay Zeka İçerik Analizi</string>
+    <string name="progress_scanning">Depolama taranıyor ve değişmeyen dosyalar kontrol ediliyor…</string>
+    <string name="progress_analyzing">Görsel içerik cihaz üzerinde analiz ediliyor…</string>
+    <string name="progress_paused">Analiz Duraklatıldı (Kontrol Noktası Kaydedildi)</string>
+    <string name="progress_completed">Analiz Tamamlandı</string>
+    <string name="progress_counts_fmt">%1$d / %2$d dosya işlendi</string>
+    <string name="progress_current_file">İşlenen Dosya: %1$s</string>
+    <string name="progress_detected_cat">Tespit Edilen Kategori: %1$s</string>
+    <string name="progress_video_sampling">Çoklu video karesi örnekleme (%%10, %%30, %%50, %%70, %%90)</string>
+    <string name="btn_pause">Duraklat</string>
+    <string name="btn_resume">Devam Et</string>
+    <string name="btn_cancel_analysis">İptal Et</string>
+    <string name="btn_view_results">Analiz Sonuçlarını İncele</string>
+
+    <!-- Screen 5: Analysis Results & Export Operations -->
+    <string name="results_title">Analiz Sonuçları</string>
+    <string name="results_summary_fmt">%1$d sınıflandırıldı • %2$d inceleme bekliyor</string>
+    <string name="filter_all_categories">Tümü (%1$d)</string>
+    <string name="filter_needs_review">İnceleme Gereken (%1$d)</string>
+    <string name="badge_video">VİDEO</string>
+    <string name="badge_photo">FOTO</string>
+    <string name="badge_review">BELİRSİZ</string>
+    <string name="badge_manual">MANUEL</string>
+    <string name="badge_excluded">HARİÇ</string>
+    <string name="confidence_calibrated_fmt">Skor: %%%1$d (Benz: %2$.2f)</string>
+    <string name="btn_proceed_transfer">Uygulama İçi Taşıma</string>
+    <string name="btn_quick_reassign">Kategoriyi Değiştir</string>
+    <string name="checkbox_include_export">Dışa Aktarıma Dahil Et</string>
+
+    <!-- Export Operations Panel in Analysis Results -->
+    <string name="export_ops_section_title">Dışa Aktarım İşlemleri (Termux ve Manifestolar)</string>
+    <string name="export_ops_subtitle">Orijinal dosyaları taşımadan veya silmeden Termux uyumlu (varsayılan dry-run) betikler ve manifestolar üretin.</string>
+    <string name="export_ops_included_count_fmt">Dışa Aktarım İçin Seçilen: %1$d / %2$d (SAF kısıtlı: %3$d)</string>
+    <string name="export_ops_select_all">Görünenlerin Tümünü Seç</string>
+    <string name="export_ops_deselect_all">Seçimi Temizle</string>
+    <string name="btn_export_op_csv">CSV Dışa Aktar</string>
+    <string name="btn_export_op_json">JSON Dışa Aktar</string>
+    <string name="btn_export_op_move_sh">Taşıma Betiği (.sh)</string>
+    <string name="btn_export_op_copy_sh">Kopyalama Betiği (.sh)</string>
+    <string name="btn_export_op_all">Tümünü Dışa Aktar (4 Dosya)</string>
+    <string name="export_ops_result_banner">%1$s dizinine üretildi (%2$d dosya dahil edildi). Orijinal medya dosyaları TAŞINMADI veya değiştirilmedi.</string>
+
+    <!-- Screen 6: Media Details -->
+    <string name="details_title">Medya Detayları ve İnceleme</string>
+    <string name="details_filename">Dosya Adı</string>
+    <string name="details_filesize">Dosya Boyutu</string>
+    <string name="details_resolution">Çözünürlük</string>
+    <string name="details_duration">Video Süresi</string>
+    <string name="details_last_modified">Dosya Sistemi Değiştirilme Tarihi</string>
+    <string name="details_exif_date">EXIF Çekim Tarihi</string>
+    <string name="details_exif_none">Dosya içinde gömülü değil</string>
+    <string name="details_detected_category">Atanan Kategori</string>
+    <string name="details_confidence_metrics">Kalibre Edilmemiş Softmax Skoru: %%%1$d | Kosinüs Benzerliği: %2$.3f | Marj: %3$.3f</string>
+    <string name="details_confidence_note">Not: Sıcaklık ölçekli softmax skorları ve kosinüs benzerliği sezgisel sıralama değerleridir; deneysel olarak kalibre edilmiş olasılık değildir.</string>
+    <string name="details_video_frames_title">Çoklu Video Karesi Sınıflandırma Dağılımı</string>
+    <string name="details_ambiguous_video_warning">Farklı zaman dilimlerinde birden fazla bağımsız sahne tespit edildi. Lütfen kategoriyi doğrulayın.</string>
+    <string name="btn_change_category">Kategoriyi Manuel Değiştir</string>
+    <string name="toggle_exclude_transfer">Bu dosyayı taşıma ve dışa aktarımdan hariç tut</string>
+
+    <!-- Screen 7: File Transfer -->
+    <string name="transfer_title">Güvenli Dosya Taşıma</string>
+    <string name="transfer_analysis_mode_banner">Analiz Modu Aktif: Siz onay verene veya Taşıma Moduna geçene kadar hiçbir dosya taşınmaz.</string>
+    <string name="transfer_stat_total">Toplam Analiz</string>
+    <string name="transfer_stat_ready">Taşınmaya Hazır</string>
+    <string name="transfer_stat_review">İnceleme Bekleyen</string>
+    <string name="transfer_stat_excluded">Hariç Tutulan</string>
+    <string name="transfer_proposed_structure">Önerilen Hedef Klasör Yapısı</string>
+    <string name="transfer_safety_checklist">İşlem Güvenliği Garantileri: SHA-256 bütünlük doğrulaması • Çakışma koruması • Orijinal zaman damgası kontrolü</string>
+    <string name="btn_start_transfer">Onayla ve Aktarımı Başlat</string>
+    <string name="dialog_confirm_transfer_title">Dosya İşlemini Onayla</string>
+    <string name="dialog_confirm_transfer_msg">%2$d dosya ilgili kategori klasörlerine (%1$s) aktarılacak. SHA-256 doğrulaması ve zaman damgası kontrolü tamamlanmadan orijinal dosyalar asla silinmez.</string>
+    <string name="transfer_result_summary">Başarılı: %1$d | Zaman Damgası Korunan: %2$d | Çakışma Çözülen: %3$d | Hata: %4$d</string>
+
+    <!-- Screen 8: Settings -->
+    <string name="settings_title">Ayarlar ve Tanılama</string>
+    <string name="settings_section_appearance">Dil ve AMOLED Görünüm</string>
+    <string name="settings_language">Uygulama Dili</string>
+    <string name="lang_english">English (İngilizce)</string>
+    <string name="lang_turkish">Türkçe</string>
+    <string name="settings_amoled_mode">Saf Siyah AMOLED Tema (#000000)</string>
+    <string name="settings_section_ai">Cihaz İçi Yapay Zeka Modeli</string>
+    <string name="settings_ai_engine">Aktif Yapay Zeka Motoru</string>
+    <string name="ai_engine_hybrid">Hibrit Demo ONNX + ML Kit Görüntü Etiketleme (Çevrimdışı)</string>
+    <string name="ai_engine_onnx_only">Yalnızca Gömülü 10 KB Sezgisel Demo ONNX Modeli</string>
+    <string name="ai_engine_custom_clip">Harici MobileCLIP ONNX Modeli</string>
+    <string name="settings_model_info">Gömülü Varlık: media_visual_embedder.onnx (10 KB Sezgisel/Demo Projeksiyon Modeli, Apache-2.0 — tam anlamsal tanıma için MobileCLIP ONNX içe aktarın)</string>
+    <string name="btn_import_custom_onnx">Harici .onnx Model Dosyası İçe Aktar (MobileCLIP)</string>
+    <string name="settings_hw_accel">NNAPI Donanım Hızlandırmayı Etkinleştir (destekleniyorsa)</string>
+    <string name="settings_confidence_threshold">Minimum Kalibre Edilmemiş Skor Eşiği: %%%1$d</string>
+    <string name="settings_section_safety">Dosya Koruma ve Çakışma Politikaları</string>
+    <string name="settings_timestamp_policy">Değiştirilme Zaman Damgası Politikası</string>
+    <string name="ts_policy_best_effort">Zaman Damgasını Geri Yükle ve SAF Kısıtlamalarını Raporla</string>
+    <string name="ts_policy_fallback_copy">Yıkıcı Olmayan Yedekleme (Zaman Damgası Korunamazsa Orijinali Silme)</string>
+    <string name="settings_collision_policy">Aynı İsimli Dosya Çakışma Davranışı</string>
+    <string name="collision_rename">Son Ek ile Otomatik Yeniden Adlandır (dosya_1.jpg)</string>
+    <string name="collision_skip">Üzerine Yazmadan Mevcut Dosyayı Atla</string>
+    <string name="collision_verify_hash">SHA-256 Eşleşirse Atla, Farklıysa Yeniden Adlandır</string>
+    <string name="settings_preview_before_move">Taşımadan Önce İnceleme Onayı İste</string>
+    <string name="settings_section_history">Analiz Geçmişi ve Dışa Aktarım</string>
+    <string name="btn_export_csv">classification_report.csv Dışa Aktar</string>
+    <string name="btn_export_json">file_operations.json Dışa Aktar</string>
+    <string name="export_success_fmt">Dışa aktarıldı: %1$s</string>
+    <string name="history_empty">Henüz tamamlanmış bir işlem kaydı bulunmuyor.</string>
+</resources>
