@@ -2,6 +2,7 @@ package com.aimediasorter.app.domain.storage
 
 import android.content.Context
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.webkit.MimeTypeMap
 import androidx.documentfile.provider.DocumentFile
 import com.aimediasorter.app.data.model.DefaultCategories
@@ -29,18 +30,38 @@ class StorageScanner(private val context: Context) {
      * Prevents recursive processing loops by verifying that the destination folder is neither
      * identical to nor nested inside the source folder.
      */
-    fun isDestinationInsideSource(sourceUriStr: String, destinationUriStr: String): Boolean {
-        if (sourceUriStr.isBlank() || destinationUriStr.isBlank()) return false
-        val normalizedSrc = normalizeUriOrPath(sourceUriStr)
-        val normalizedDst = normalizeUriOrPath(destinationUriStr)
-        if (normalizedSrc.equals(normalizedDst, ignoreCase = true)) return true
-        return normalizedDst.startsWith("$normalizedSrc/", ignoreCase = true)
+    fun resolveLocalFile(raw: String): File? {
+        if (raw.startsWith("/")) return File(raw)
+        val uri = Uri.parse(raw)
+        return if (uri.scheme == "file") uri.path?.let { File(it) } else null
     }
 
-    fun normalizeUriOrPath(raw: String): String {
-        val decoded = runCatching { URLDecoder.decode(raw, "UTF-8") }.getOrDefault(raw)
-        return decoded.trimEnd('/', '\')
+    fun isDestinationInsideSource(sourceUriStr: String, destinationUriStr: String): Boolean {
+        if (sourceUriStr.isBlank() || destinationUriStr.isBlank()) return false
+        val sourceFile = resolveLocalFile(sourceUriStr)
+        val destinationFile = resolveLocalFile(destinationUriStr)
+        if (sourceFile != null && destinationFile != null) {
+            return destinationFile.canonicalFile.toPath().startsWith(sourceFile.canonicalFile.toPath())
+        }
+        val source = Uri.parse(sourceUriStr)
+        val destination = Uri.parse(destinationUriStr)
+        if (source.scheme != "content" || destination.scheme != "content") return false
+        if (source.authority != destination.authority) return false
+        val sourceId = runCatching { DocumentsContract.getTreeDocumentId(source) }.getOrNull() ?: return true
+        val destinationId = runCatching { DocumentsContract.getTreeDocumentId(destination) }.getOrNull() ?: return true
+        if (sourceId == destinationId) return true
+        if (source.authority == "com.android.externalstorage.documents") {
+            return destinationId.startsWith(sourceId.trimEnd('/') + "/")
+        }
+        return runCatching {
+            DocumentsContract.isChildDocument(context.contentResolver,
+                DocumentsContract.buildDocumentUriUsingTree(source, sourceId),
+                DocumentsContract.buildDocumentUriUsingTree(destination, destinationId))
+        }.getOrDefault(true) // Unsupported ancestry checks fail closed.
     }
+
+    fun normalizeUriOrPath(raw: String): String =
+        resolveLocalFile(raw)?.canonicalPath ?: Uri.parse(raw).normalizeScheme().toString().trimEnd('/')
 
     suspend fun scanDirectory(
         sourceUriStr: String,
@@ -58,7 +79,7 @@ class StorageScanner(private val context: Context) {
         val normalizedExtensions = enabledExtensions.map { it.lowercase() }.toSet()
         val results = mutableListOf<ScannedMediaCandidate>()
 
-        val directFile = File(sourceUriStr)
+        val directFile = resolveLocalFile(sourceUriStr) ?: File("")
         if (directFile.exists() && directFile.isDirectory) {
             scanFilesystemDir(
                 dir = directFile,
@@ -74,6 +95,7 @@ class StorageScanner(private val context: Context) {
 
         val treeUri = Uri.parse(sourceUriStr)
         val rootDoc = DocumentFile.fromTreeUri(context, treeUri)
+            ?.takeIf { it.canRead() && it.isDirectory }
             ?: throw IllegalStateException("Revoked or invalid folder access for URI: $sourceUriStr")
 
         scanDocumentTree(
