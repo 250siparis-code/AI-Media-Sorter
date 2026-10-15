@@ -109,4 +109,37 @@ Before testing with a real archive, verify the phone/provider using copied repre
 
 ## Final Verification Record
 
-Pending final CI result for the proposed branch. This section will be updated with exact commit/run identifiers and executed test results before handing over the pull request.
+Verified implementation commit: b00bb10fc178c28c00d6a171699b5523f7b74a12.
+Verification date: 2026-10-15 UTC.
+Full workflow result: SUCCESS.
+https://github.com/250siparis-code/AI-Media-Sorter/actions/runs/38671112461
+
+| Check | Executed result |
+| --- | --- |
+| Clean debug build, JVM unit tests, lint and instrumentation compilation | PASS; Gradle BUILD SUCCESSFUL in 5m 16s |
+| Production transfer/classification/shell JVM tests | 22 passed |
+| Production Python executor tests | 14 passed |
+| Native API 29, 4 KB pages | 18 passed; BUILD SUCCESSFUL |
+| Native API 35, 4 KB pages | 18 passed; BUILD SUCCESSFUL |
+| Native API 35, 16 KB pages | 18 passed; page size asserted as 16384; BUILD SUCCESSFUL |
+| Combined executed test invocations | 90 passed; no ignored tests used |
+| APK manifest, signature and alignment inspection | PASS |
+
+The native suite executes actual ML Kit and ONNX inference, distinct-frame video inference, corrupted-video review, image bounds/mirroring, 2,002-file discovery, source-scoped Room queries and non-destructive migration. Its real ContentResolver/DocumentsProvider tests verify collision-safe readback, source retention on corruption/revocation and unsupported mtime. Additional tests verify later recovery in the same process, fresh recovery mtime readback and updated filesystem timestamps when inference is reused for identical bytes.
+
+The initial native runs exposed defects in the test fixture itself (an API-29-incompatible assertion, cross-APK provider permission/ownership, missing Kotlin libraries in the test APK's standalone process, and a private-directory URI alias assumption). Those harness defects were corrected and the entire suite was rerun successfully. They were not hidden with skipped or ignored tests.
+
+Generated debug APK:
+https://github.com/250siparis-code/AI-Media-Sorter/actions/runs/38671112461/artifacts/11944548455
+
+APK SHA-256: 627f62c44de8d64fb2ea911becec143cebe939f3aacaf3aec323df4b348d7424
+APK size: 188,020,982 bytes (universal debug APK; artifact ZIP is approximately 67.9 MB).
+Minimum SDK 29; target SDK 35. APK Signature Scheme v2 verified. zipalign -P 16 passed and all packaged 64-bit native PT_LOAD segments meet 16 KB alignment. INTERNET and MANAGE_EXTERNAL_STORAGE are absent; the test provider/activity are absent from the application manifest.
+
+Reports:
+- JVM/lint/APK: artifact 11943788794.
+- Native API 29: artifact 11944293120.
+- Native API 35: artifact 11944104871.
+- Native API 35 with 16 KB pages: artifact 11943979784.
+
+This verification establishes buildability and the tested synthetic/isolated behavior. It does not establish a semantic accuracy percentage, physical-phone throughput/battery/RAM, release R8/signing behavior, every OEM/provider contract, or safe destructive acceptance on a real archive. Main remains unchanged at b32444218f4a5e262803199abbd70e98df786ffe. Subsequent report-only changes do not change the verified application code.
