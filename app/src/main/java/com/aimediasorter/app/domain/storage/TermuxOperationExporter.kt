@@ -127,10 +127,10 @@ class TermuxOperationExporter(private val context: Context) {
                 mediaType = if (item.isVideo) "VIDEO" else "PHOTO",
                 originalModificationTimestampMs = item.originalLastModifiedMs,
                 originalModificationEpochSec = item.originalLastModifiedMs / 1000,
-                originalModificationIsoUtc = dateFormat.format(Date(item.originalLastModifiedMs)),
+                originalModificationIsoUtc = if (item.originalLastModifiedMs > 0) dateFormat.format(Date(item.originalLastModifiedMs)) else "",
                 requestedOperation = requestedMethod.name, sourceRootDirectory = sourceRoot,
                 destinationRootDirectory = destinationRoot, sourceSha256 = item.sha256Checksum,
-                needsManualReview = item.needsManualReview,
+                needsManualReview = item.needsManualReview || item.sha256Checksum == null || category?.isEnabled != true,
                 timestampPolicy = if (timestampPolicy == TimestampPolicy.FALLBACK_COPY_KEEP_ORIGINAL) "keep-original" else "best-effort"
             )
         }

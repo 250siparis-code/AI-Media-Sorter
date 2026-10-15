@@ -386,8 +386,15 @@ class MediaRepository(private val context: Context) {
     private suspend fun exportSelection(ids: Set<Long>, destination: String, method: TransferMethod): List<FileOperationExportRecord> {
         val settings = settingsRepository.settingsFlow.first()
         val items = db.mediaItemDao().getCurrentMediaItems(settings.sourceUri).filter { it.id in ids && !it.isExcludedFromTransfer }
-        val categories = db.categoryDao().getAllCategories().associateBy { it.id }
-        return termuxExporter.buildExportRecords(items, categories, destination, method, settings.sourceUri, settings.timestampPolicy)
+        val allCategories = db.categoryDao().getAllCategories()
+        val categories = allCategories.associateBy { it.id }
+        val session = db.analysisSessionDao().latestForSource(settings.sourceUri)
+        val stale = session?.status != "COMPLETED" ||
+            session.analysisSignature != signature(settings, allCategories)
+        val checkedItems = items.map { it.copy(needsManualReview = it.needsManualReview || stale ||
+            it.sha256Checksum == null || categories[it.effectiveCategoryId]?.isEnabled != true ||
+            it.inferenceEngine == "ONNX_DIAGNOSTIC" && !it.isManuallyCorrected) }
+        return termuxExporter.buildExportRecords(checkedItems, categories, destination, method, settings.sourceUri, settings.timestampPolicy)
     }
     suspend fun exportTermuxCsv(ids: Set<Long>, destination: String, method: TransferMethod): ExportBundleResult = withContext(Dispatchers.IO) {
         val records = exportSelection(ids, destination, method)
