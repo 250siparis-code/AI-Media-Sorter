@@ -52,6 +52,8 @@ class CloudAnalysisService(context: Context,extractor: VisualFeatureExtractor,
                     if(vault.revision!=credential.revision) throw CloudFailure(CloudErrorKind.CONSENT)
                     state.reserve(batch,signature,credential.revision)
                 }
+                liveCheck() // Do not cache a result against bytes/configuration that changed in flight.
+                if(vault.revision!=credential.revision) throw CloudFailure(CloudErrorKind.CONSENT)
                 state.complete(batch,cacheKey,response);decision=response.decision
             }
             val result=decision ?: throw CloudFailure(CloudErrorKind.RESPONSE)

@@ -220,6 +220,8 @@ class MediaRepository(private val context: Context) {
                                     if (live.sourceUri != settings.sourceUri || live.cloudOptions != settings.cloudOptions ||
                                         signature(live, db.categoryDao().getAllCategories()) != configuration)
                                         throw CloudFailure(CloudErrorKind.CONSENT)
+                                    if (sourceChecksum == null || checksum(candidate.uri.toString(), candidate.filePath) != sourceChecksum)
+                                        throw CloudFailure(CloudErrorKind.CONSENT)
                                 }
                             }
                         } catch (cancelled: CancellationException) { throw cancelled }
