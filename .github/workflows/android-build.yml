@@ -49,14 +49,15 @@ jobs:
         run: |
           python3 scripts/measure_apk.py app/build/outputs/apk/debug/app-debug.apk app/build/reports/current-size.json
           "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" dex packages --defined-only app/build/outputs/apk/debug/app-debug.apk > current-dex-packages.txt
-      - name: Build optimized release APKs for testing only
+      - name: Build ARMv7 and ARM64 APKs for testing only
         run: |
           mkdir -p optimized-apks
-          cp app/build/outputs/apk/debug/app-debug.apk optimized-apks/optimized-universal-debug.apk
-          ./gradlew assembleRelease -PqaReleaseSigning=true --stacktrace
-          cp app/build/outputs/apk/release/app-release.apk optimized-apks/optimized-universal-release-QA.apk
+          cp app/build/outputs/apk/debug/app-debug.apk optimized-apks/optimized-arm64-v8a-debug.apk
           ./gradlew assembleRelease -PqaReleaseSigning=true -PtargetAbi=arm64-v8a --stacktrace
           cp app/build/outputs/apk/release/app-release.apk optimized-apks/optimized-arm64-v8a-release-QA.apk
+          ./gradlew assembleDebug assembleRelease -PqaReleaseSigning=true -PtargetAbi=armeabi-v7a --stacktrace
+          cp app/build/outputs/apk/debug/app-debug.apk optimized-apks/optimized-armeabi-v7a-debug.apk
+          cp app/build/outputs/apk/release/app-release.apk optimized-apks/optimized-armeabi-v7a-release-QA.apk
           for apk in optimized-apks/*.apk; do
             python3 scripts/measure_apk.py "$apk" "app/build/reports/$(basename "$apk" .apk)-size.json"
             python3 scripts/inspect_apk.py "$apk"
@@ -70,7 +71,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: AIMediaSorter-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: optimized-apks/*-debug.apk
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: always()

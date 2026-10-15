@@ -3,7 +3,7 @@ set -euo pipefail
 variant="$1"
 page_size="$2"
 if [ "$variant" = "release" ]; then
-  ./gradlew connectedReleaseAndroidTest -PqaReleaseSigning=true -Pandroid.testInstrumentationRunnerArguments.expectedPageSize="$page_size" --stacktrace
+  ./gradlew connectedReleaseAndroidTest -PqaReleaseSigning=true -PtargetAbi=x86_64 -Pandroid.testInstrumentationRunnerArguments.expectedPageSize="$page_size" --stacktrace
 else
-  ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.expectedPageSize="$page_size" --stacktrace
+  ./gradlew connectedDebugAndroidTest -PtargetAbi=x86_64 -Pandroid.testInstrumentationRunnerArguments.expectedPageSize="$page_size" --stacktrace
 fi

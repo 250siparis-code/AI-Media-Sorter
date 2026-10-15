@@ -7,8 +7,8 @@ plugins {
 }
 
 val qaReleaseSigning = providers.gradleProperty("qaReleaseSigning").orNull == "true"
-val selectedAbi = providers.gradleProperty("targetAbi").orNull
-require(selectedAbi == null || selectedAbi in setOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")) { "Unsupported targetAbi" }
+val selectedAbi = providers.gradleProperty("targetAbi").orNull ?: "arm64-v8a"
+require(selectedAbi in setOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")) { "Unsupported targetAbi" }
 
 android {
     namespace = "com.aimediasorter.app"
@@ -20,7 +20,7 @@ android {
         targetSdk = 35
         versionCode = 2
         versionName = "1.0.2-android14"
-        if (selectedAbi != null) ndk { abiFilters += selectedAbi }
+        ndk { abiFilters += selectedAbi }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
