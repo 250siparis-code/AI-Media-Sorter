@@ -232,6 +232,23 @@ class NativePipelineTest {
         } finally { database.close() }
     }
 
+    @Test fun reportsKeepDecimalColumnsValidUnderTurkishLocale() {
+        val before = java.util.Locale.getDefault()
+        var report: File? = null
+        try {
+            java.util.Locale.setDefault(java.util.Locale.forLanguageTag("tr"))
+            report = ReportExporter(context).exportCsvReport(
+                listOf(item("content://qa/photo", "source", "session").copy(calibratedConfidence = .1234f)),
+                emptyList())
+            val csv = report.readText()
+            assertTrue(csv.contains(",0.1234,"))
+            assertFalse(csv.contains(",0,1234,"))
+        } finally {
+            java.util.Locale.setDefault(before)
+            report?.parentFile?.deleteRecursively()
+        }
+    }
+
     @Test fun originalMediaStoreStreamMatchesWrittenBytes() {
         val resolver = context.contentResolver
         val values = ContentValues().apply {

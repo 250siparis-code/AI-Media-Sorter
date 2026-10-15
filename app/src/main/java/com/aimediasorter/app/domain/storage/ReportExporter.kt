@@ -7,6 +7,8 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.util.Locale
+import java.util.UUID
 
 @Serializable
 data class DiagnosticExportPayload(
@@ -28,13 +30,13 @@ class ReportExporter(private val context: Context) {
         mediaItems: List<MediaItemEntity>,
         logs: List<TransferLogEntity>
     ): File {
-        val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
+        val exportDir = File(context.cacheDir, "exports/" + UUID.randomUUID()).apply { check(mkdirs()) }
         val csvFile = File(exportDir, "ai_media_sorter_report_${System.currentTimeMillis()}.csv")
 
         csvFile.bufferedWriter(Charsets.UTF_8).use { writer ->
             writer.write(
                 "ID,FileName,Type,Extension,SizeBytes,OriginalLastModifiedMs,ExifCaptureDateMs," +
-                "DetectedCategory,EffectiveCategory,CalibratedConfidence,RawSimilarity,TopMargin," +
+                "DetectedCategory,EffectiveCategory,ModelScore,DiagnosticRawSimilarity,TopMargin," +
                 "NeedsManualReview,IsManuallyCorrected,Excluded,TransferStatus,SHA256,TimestampVerified\n"
             )
             for (item in mediaItems) {
@@ -49,9 +51,9 @@ class ReportExporter(private val context: Context) {
                         (item.exifCaptureDateMs ?: "").toString(),
                         escapeCsv(item.detectedCategoryName),
                         escapeCsv(item.effectiveCategoryName),
-                        "%.4f".format(item.calibratedConfidence),
-                        "%.4f".format(item.rawSimilarityScore),
-                        "%.4f".format(item.topMargin),
+                        "%.4f".format(Locale.US, item.calibratedConfidence),
+                        "%.4f".format(Locale.US, item.rawSimilarityScore),
+                        "%.4f".format(Locale.US, item.topMargin),
                         item.needsManualReview.toString(),
                         item.isManuallyCorrected.toString(),
                         item.isExcludedFromTransfer.toString(),
@@ -69,7 +71,7 @@ class ReportExporter(private val context: Context) {
         mediaItems: List<MediaItemEntity>,
         logs: List<TransferLogEntity>
     ): File {
-        val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
+        val exportDir = File(context.cacheDir, "exports/" + UUID.randomUUID()).apply { check(mkdirs()) }
         val jsonFile = File(exportDir, "ai_media_sorter_diagnostics_${System.currentTimeMillis()}.json")
         val payload = DiagnosticExportPayload(
             exportedAtMs = System.currentTimeMillis(),
