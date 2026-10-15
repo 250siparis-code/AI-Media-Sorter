@@ -202,6 +202,7 @@ private fun CategoryEditDialog(
     var name by remember { mutableStateOf(initial?.name ?: "") }
     var desc by remember { mutableStateOf(initial?.description ?: "") }
     var folder by remember { mutableStateOf(initial?.destinationSubfolder ?: "") }
+    val validFolder = runCatching { com.aimediasorter.app.domain.storage.SafeRelativePath.segments(folder.ifBlank { name }) }.isSuccess
     var priorityText by remember { mutableStateOf((initial?.priority ?: 7).toString()) }
 
     AlertDialog(
@@ -245,6 +246,7 @@ private fun CategoryEditDialog(
         },
         confirmButton = {
             TextButton(
+                enabled = name.isNotBlank() && validFolder,
                 onClick = {
                     val prio = priorityText.toIntOrNull()?.coerceIn(1, 10) ?: 7
                     onConfirm(initial?.id, name, desc, folder.ifBlank { name }, prio)

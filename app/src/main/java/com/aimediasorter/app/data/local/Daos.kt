@@ -45,8 +45,11 @@ interface MediaItemDao {
     @Query("SELECT * FROM media_items WHERE uriString = :uriString LIMIT 1")
     suspend fun getByUri(uriString: String): MediaItemEntity?
 
-    @Query("SELECT * FROM media_items WHERE quickFingerprint = :fingerprint LIMIT 1")
-    suspend fun findUnchangedByFingerprint(fingerprint: String): MediaItemEntity?
+    @Query("SELECT * FROM media_items WHERE sourceRootUri = :source AND scanSessionId = (SELECT sessionId FROM analysis_sessions WHERE sourceUri = :source ORDER BY rowid DESC LIMIT 1) ORDER BY originalLastModifiedMs DESC")
+    fun observeCurrentMediaItems(source: String): Flow<List<MediaItemEntity>>
+
+    @Query("SELECT * FROM media_items WHERE sourceRootUri = :source AND scanSessionId = (SELECT sessionId FROM analysis_sessions WHERE sourceUri = :source ORDER BY rowid DESC LIMIT 1) ORDER BY originalLastModifiedMs DESC")
+    suspend fun getCurrentMediaItems(source: String): List<MediaItemEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertMediaItem(item: MediaItemEntity): Long
@@ -57,7 +60,7 @@ interface MediaItemDao {
     @Query(
         "UPDATE media_items SET effectiveCategoryId = :categoryId, " +
         "effectiveCategoryName = :categoryName, isManuallyCorrected = 1, " +
-        "needsManualReview = 0, proposedRelativePath = :proposedPath WHERE id = :itemId"
+        "needsManualReview = 0, transferStatus = 'PENDING', proposedRelativePath = :proposedPath WHERE id = :itemId"
     )
     suspend fun updateManualCategory(
         itemId: Long,
@@ -90,6 +93,18 @@ interface AnalysisSessionDao {
     @Query("SELECT * FROM analysis_sessions ORDER BY startedAtMs DESC")
     fun observeSessions(): Flow<List<AnalysisSessionEntity>>
 
+    @Query("SELECT * FROM analysis_sessions WHERE sourceUri = :source ORDER BY rowid DESC LIMIT 1")
+    suspend fun latestForSource(source: String): AnalysisSessionEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertSession(session: AnalysisSessionEntity)
+}
+
+@Dao
+interface TransferJournalDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entry: TransferJournalEntity)
+
+    @Query("SELECT * FROM transfer_journal WHERE phase NOT IN ('FINALIZED', 'RECOVERED', 'FAILED', 'CANCELLED')")
+    suspend fun unfinished(): List<TransferJournalEntity>
 }

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.aimediasorter.app.data.model.DefaultCategories
 import kotlinx.coroutines.CoroutineScope
@@ -15,9 +16,10 @@ import kotlinx.coroutines.launch
         CategoryEntity::class,
         MediaItemEntity::class,
         TransferLogEntity::class,
-        AnalysisSessionEntity::class
+        AnalysisSessionEntity::class,
+        TransferJournalEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -25,8 +27,20 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun mediaItemDao(): MediaItemDao
     abstract fun transferLogDao(): TransferLogDao
     abstract fun analysisSessionDao(): AnalysisSessionDao
+    abstract fun transferJournalDao(): TransferJournalDao
 
     companion object {
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE media_items ADD COLUMN sourceRootUri TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE media_items ADD COLUMN scanSessionId TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE media_items ADD COLUMN analysisSignature TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE media_items ADD COLUMN inferenceEngine TEXT NOT NULL DEFAULT 'legacy'")
+                db.execSQL("ALTER TABLE analysis_sessions ADD COLUMN analysisSignature TEXT NOT NULL DEFAULT ''")
+                db.execSQL("CREATE TABLE IF NOT EXISTS transfer_journal (operationId TEXT NOT NULL PRIMARY KEY, itemId INTEGER NOT NULL, sourceRootUri TEXT NOT NULL, sourceUri TEXT NOT NULL, requestedMethod TEXT NOT NULL, phase TEXT NOT NULL, destinationUri TEXT, stagingUri TEXT, checksum TEXT, originalModifiedMs INTEGER NOT NULL, destinationModifiedMs INTEGER NOT NULL, timestampPreserved INTEGER NOT NULL, updatedAtMs INTEGER NOT NULL, details TEXT NOT NULL)")
+            }
+        }
+
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
@@ -37,7 +51,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "ai_media_sorter.db"
                 )
-                    .fallbackToDestructiveMigration()
+                    .addMigrations(MIGRATION_1_2)
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)

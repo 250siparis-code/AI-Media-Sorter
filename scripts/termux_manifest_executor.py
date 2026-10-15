@@ -106,6 +106,14 @@ def publish_exclusive(staging, directory, name, collision):
             counter += 1
 
 
+def sync_directory(directory):
+    fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def execute_operation(record, mode=None, collision="rename", timestamp_policy=None):
     source, directory, name = validate_record(record)
     operation = mode or record.get("requestedOperation", "COPY")
@@ -150,9 +158,20 @@ def execute_operation(record, mode=None, collision="rename", timestamp_policy=No
             timestamp_preserved = abs(actual - original_info.st_mtime_ns) <= MTIME_TOLERANCE_NS
         except OSError:
             pass
+        publication_durable = True
+        try:
+            current = directory
+            while True:
+                sync_directory(current)
+                parent = os.path.dirname(current)
+                if parent == current:
+                    break
+                current = parent
+        except OSError:
+            publication_durable = False
         source_retained = True
         actual_operation = "COPY"
-        if operation == "MOVE" and (timestamp_preserved or policy == "best-effort"):
+        if operation == "MOVE" and publication_durable and (timestamp_preserved or policy == "best-effort"):
             # A published file or a source can change independently of the staged copy.
             if identity(source) != before or sha256_file(source) != source_hash:
                 raise ValueError("Source changed before deletion; source and verified copy preserved")
@@ -169,6 +188,7 @@ def execute_operation(record, mode=None, collision="rename", timestamp_policy=No
             "status": "COMPLETED" if timestamp_preserved else "COMPLETED_TIMESTAMP_WARNING",
             "source": source, "destination": destination, "actualOperation": actual_operation,
             "sourceRetained": source_retained, "sha256": source_hash,
+            "publicationDurable": publication_durable,
             "timestampPreserved": timestamp_preserved,
             "originalModificationNs": original_info.st_mtime_ns,
             "destinationModificationNs": os.stat(destination, follow_symlinks=False).st_mtime_ns,

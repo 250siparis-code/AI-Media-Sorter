@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import android.system.OsConstants
 import android.system.Os
 import android.system.StructTimespec
 import androidx.documentfile.provider.DocumentFile
@@ -20,7 +21,8 @@ data class MediaTimestampMetadata(
     val width: Int,
     val height: Int,
     val durationMs: Long,
-    val orientationDegrees: Int
+    val orientationDegrees: Int,
+    val isMirrored: Boolean = false
 )
 
 data class TimestampVerificationResult(
@@ -58,14 +60,19 @@ class ExifAndTimestampManager(private val context: Context) {
 
     fun resolveFilesystemLastModified(uri: Uri, filePath: String?, fallbackMs: Long): Long {
         if (!filePath.isNullOrBlank()) {
-            val f = File(filePath)
-            if (f.exists() && f.lastModified() > 0L) {
-                return f.lastModified()
-            }
+            val file = File(filePath)
+            if (file.exists()) return file.lastModified()
         }
-        val doc = DocumentFile.fromSingleUri(context, uri)
-        val docModified = doc?.lastModified() ?: 0L
-        return if (docModified > 0L) docModified else fallbackMs
+        // Provider-reported dates are not interchangeable with filesystem mtime.
+        if (uri.authority != "com.android.externalstorage.documents") return 0L
+        return runCatching {
+            context.contentResolver.openFileDescriptor(uri, "r")?.use {
+                val stat = Os.fstat(it.fileDescriptor)
+                if (OsConstants.S_ISREG(stat.st_mode)) {
+                    File("/proc/self/fd/" + it.fd).lastModified().takeIf { value -> value > 0 } ?: stat.st_mtime * 1000L
+                } else 0L
+            } ?: 0L
+        }.getOrDefault(0L)
     }
 
     private fun inspectImageMetadata(
@@ -77,6 +84,7 @@ class ExifAndTimestampManager(private val context: Context) {
         var width = 0
         var height = 0
         var orientationDeg = 0
+        var mirrored = false
 
         runCatching {
             val exif = if (!filePath.isNullOrBlank() && File(filePath).exists()) {
@@ -90,10 +98,11 @@ class ExifAndTimestampManager(private val context: Context) {
                 width = exif.getAttributeInt(ExifInterface.TAG_IMAGE_WIDTH, 0)
                 height = exif.getAttributeInt(ExifInterface.TAG_IMAGE_LENGTH, 0)
                 orientationDeg = exif.rotationDegrees
+                mirrored = exif.isFlipped
                 val dateTimeOriginal = exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL)
-                    ?: exif.getAttribute(ExifInterface.TAG_DATETIME)
+
                 if (!dateTimeOriginal.isNullOrBlank()) {
-                    exifDateMs = parseExifDateString(dateTimeOriginal)
+                    exifDateMs = parseExifDateString(dateTimeOriginal, exif.getAttribute(ExifInterface.TAG_OFFSET_TIME_ORIGINAL))
                 }
             }
         }
@@ -104,7 +113,8 @@ class ExifAndTimestampManager(private val context: Context) {
             width = width,
             height = height,
             durationMs = 0L,
-            orientationDegrees = orientationDeg
+            orientationDegrees = orientationDeg,
+            isMirrored = mirrored
         )
     }
 
@@ -181,32 +191,28 @@ class ExifAndTimestampManager(private val context: Context) {
             }
         }
 
-        // 2. POSIX futimens / utimensat via ParcelFileDescriptor for SAF URIs where provider permits fd attribute updates
         if (destinationUri != null) {
+            var kernelModifiedMs = 0L
+            var changed = false
             runCatching {
-                context.contentResolver.openFileDescriptor(destinationUri, "rw")?.use { pfd: ParcelFileDescriptor ->
-                    val seconds = originalLastModifiedMs / 1000L
-                    val nanos = (originalLastModifiedMs % 1000L) * 1_000_000L
-                    val timespec = StructTimespec(seconds, nanos)
-                    // Access via reflection or Os.futimens when available on API 29+
-                    val futimensMethod = Os::class.java.methods.firstOrNull { it.name == "futimens" }
-                    futimensMethod?.invoke(null, pfd.fileDescriptor, arrayOf(timespec, timespec))
+                context.contentResolver.openFileDescriptor(destinationUri, "rw")?.use { descriptor ->
+                    val before = Os.fstat(descriptor.fileDescriptor)
+                    if (OsConstants.S_ISREG(before.st_mode)) {
+                        changed = File("/proc/self/fd/" + descriptor.fd).setLastModified(originalLastModifiedMs)
+                        kernelModifiedMs = File("/proc/self/fd/" + descriptor.fd).lastModified().takeIf { it > 0 }
+                            ?: Os.fstat(descriptor.fileDescriptor).st_mtime * 1000L
+                    }
                 }
             }
-
-            val doc = DocumentFile.fromSingleUri(context, destinationUri)
-            val actualDocMs = doc?.lastModified() ?: 0L
-            val preserved = actualDocMs > 0L && abs(actualDocMs - originalLastModifiedMs) <= TIMESTAMP_TOLERANCE_MS
-            return TimestampVerificationResult(
-                preserved = preserved,
-                originalLastModifiedMs = originalLastModifiedMs,
-                actualDestinationLastModifiedMs = actualDocMs,
-                note = if (preserved) {
-                    "Destination SAF URI timestamp verified within ${TIMESTAMP_TOLERANCE_MS}ms tolerance."
-                } else {
-                    "Android SAF storage provider restricted modification timestamp changes (Original: $originalLastModifiedMs, Provider assigned: $actualDocMs). Original timestamp recorded in operation database."
-                }
-            )
+            val providerModifiedMs = DocumentFile.fromSingleUri(context, destinationUri)?.lastModified() ?: 0L
+            val preserved = changed && kernelModifiedMs > 0 && providerModifiedMs > 0 &&
+                abs(kernelModifiedMs - originalLastModifiedMs) <= TIMESTAMP_TOLERANCE_MS &&
+                abs(providerModifiedMs - originalLastModifiedMs) <= TIMESTAMP_TOLERANCE_MS
+            return TimestampVerificationResult(preserved, originalLastModifiedMs, kernelModifiedMs,
+                if (preserved) "Descriptor filesystem mtime and provider metadata independently verified within 2000 ms."
+                else "Filesystem modification time could not be verified through this provider. Provider date: " +
+                    providerModifiedMs + "; descriptor mtime: " + kernelModifiedMs +
+                    ". Embedded capture metadata is unchanged. The keep-original policy retains the source.")
         }
 
         return TimestampVerificationResult(
@@ -217,19 +223,27 @@ class ExifAndTimestampManager(private val context: Context) {
         )
     }
 
-    private fun parseExifDateString(raw: String): Long? {
+    private fun parseExifDateString(raw: String, offset: String?): Long? {
         return runCatching {
-            val fmt = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US)
+            val fmt = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US).apply {
+                isLenient = false
+                if (offset != null && offset.matches(Regex("[+-][0-9]{2}:[0-9]{2}"))) timeZone = TimeZone.getTimeZone("GMT" + offset)
+            }
             fmt.parse(raw)?.time
         }.getOrNull()
     }
 
     private fun parseIsoVideoDate(raw: String): Long? {
-        return runCatching {
-            val fmt = SimpleDateFormat("yyyyMMdd'T'HHmmss.SSS'Z'", Locale.US).apply {
-                timeZone = TimeZone.getTimeZone("UTC")
-            }
-            fmt.parse(raw)?.time
-        }.getOrNull()
+        runCatching { return java.time.Instant.parse(raw).toEpochMilli() }
+        for (pattern in listOf("yyyyMMdd'T'HHmmss.SSS'Z'", "yyyyMMdd'T'HHmmss'Z'")) {
+            val parsed = runCatching {
+                SimpleDateFormat(pattern, Locale.US).apply {
+                    isLenient = false
+                    timeZone = TimeZone.getTimeZone("UTC")
+                }.parse(raw)?.time
+            }.getOrNull()
+            if (parsed != null) return parsed
+        }
+        return null
     }
 }

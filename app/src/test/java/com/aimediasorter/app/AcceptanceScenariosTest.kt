@@ -164,6 +164,19 @@ class AcceptanceScenariosTest {
         try { LocalTransferDirectory(File(destinationRoot, "../../escape"), destinationRoot); fail("Escape must be rejected") }
         catch (_: IllegalArgumentException) {}
     }
+    @Test fun providerReturningSourceAsStagingNeverDeletesSource() = runBlocking {
+        val source = LocalTransferDocument(sourceFile)
+        val unsafe = object : TransferDirectory {
+            override fun find(name: String): TransferDocument? = null
+            override fun createExclusive(name: String, mimeType: String): TransferDocument = source
+        }
+        try {
+            transfer(source = source, directory = unsafe)
+            fail("Source alias must be rejected")
+        } catch (_: IllegalArgumentException) {
+            assertArrayEquals(payload, sourceFile.readBytes())
+        }
+    }
     @Test fun unknownStableIdentityKeepsOriginal() = runBlocking {
         val delegate = LocalTransferDocument(sourceFile)
         val opaque = object : TransferDocument by delegate {

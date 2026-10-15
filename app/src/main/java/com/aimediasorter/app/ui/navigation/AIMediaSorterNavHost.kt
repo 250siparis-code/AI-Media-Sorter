@@ -2,10 +2,11 @@ package com.aimediasorter.app.ui.navigation
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -28,14 +29,15 @@ fun AIMediaSorterNavHost(viewModel: MainViewModel) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route ?: ScreenRoute.Welcome.route
 
-    val settings by viewModel.settingsState.collectAsState()
-    val categories by viewModel.categoriesState.collectAsState()
-    val mediaItems by viewModel.mediaItemsState.collectAsState()
-    val analysisProgress by viewModel.analysisProgress.collectAsState()
-    val transferProgress by viewModel.transferProgress.collectAsState()
-    val sessions by viewModel.sessionsState.collectAsState()
-    val exportMessage by viewModel.exportStatusMessage.collectAsState()
-    val lastTermuxExport by viewModel.lastTermuxExportResult.collectAsState()
+    val settings by viewModel.settingsState.collectAsStateWithLifecycle()
+    val categories by viewModel.categoriesState.collectAsStateWithLifecycle()
+    val mediaItems by viewModel.mediaItemsState.collectAsStateWithLifecycle()
+    val analysisProgress by viewModel.analysisProgress.collectAsStateWithLifecycle()
+    val transferProgress by viewModel.transferProgress.collectAsStateWithLifecycle()
+    val sessions by viewModel.sessionsState.collectAsStateWithLifecycle()
+    val exportMessage by viewModel.exportStatusMessage.collectAsStateWithLifecycle()
+    val loopError by viewModel.folderLoopError.collectAsStateWithLifecycle()
+    val lastTermuxExport by viewModel.lastTermuxExportResult.collectAsStateWithLifecycle()
 
     Scaffold(
         containerColor = AmoledPureBlack,
@@ -68,7 +70,7 @@ fun AIMediaSorterNavHost(viewModel: MainViewModel) {
                 NavigationBarItem(
                     selected = currentRoute == ScreenRoute.FileTransfer.route,
                     onClick = { navController.navigate(ScreenRoute.FileTransfer.route) { launchSingleTop = true } },
-                    icon = { Icon(Icons.Default.DriveFileMove, contentDescription = null) },
+                    icon = { Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null) },
                     label = { Text(stringResource(R.string.nav_transfer)) }
                 )
                 NavigationBarItem(
@@ -96,7 +98,7 @@ fun AIMediaSorterNavHost(viewModel: MainViewModel) {
             }
 
             composable(ScreenRoute.SourceDestination.route) {
-                val loopErr = viewModel.isFolderSelectionLoop(settings.sourceUri, settings.destinationUri)
+                val loopErr = loopError
                 SourceDestinationScreen(
                     settings = settings,
                     hasLoopError = loopErr,
@@ -140,6 +142,8 @@ fun AIMediaSorterNavHost(viewModel: MainViewModel) {
                     mediaItems = mediaItems,
                     categories = categories,
                     lastExportResult = lastTermuxExport,
+                    onSaveExport = viewModel::saveLastExport,
+                    isAnalysisRunning = analysisProgress.isRunning,
                     onInspectItem = { itemId ->
                         navController.navigate(ScreenRoute.MediaDetails.createRoute(itemId))
                     },
@@ -174,6 +178,7 @@ fun AIMediaSorterNavHost(viewModel: MainViewModel) {
                     operationMode = settings.operationMode,
                     transferMethod = settings.transferMethod,
                     transferProgress = transferProgress,
+                    onCancelTransfer = viewModel::cancelTransfers,
                     onConfirmAndExecuteTransfer = { includeReview ->
                         viewModel.executeTransfers(includeReview)
                     }
@@ -191,7 +196,9 @@ fun AIMediaSorterNavHost(viewModel: MainViewModel) {
                     onConfidenceChange = viewModel::setConfidenceThreshold,
                     onTimestampPolicyChange = viewModel::setTimestampPolicy,
                     onCollisionPolicyChange = viewModel::setCollisionPolicy,
-                    onPreviewBeforeMovingChange = viewModel::setPreviewBeforeMoving,
+                    onOperationModeChange = viewModel::setOperationMode,
+                    canSaveExport = lastTermuxExport != null,
+                    onSaveExport = viewModel::saveLastExport,
                     onExportCsv = viewModel::exportCsvReport,
                     onExportJson = viewModel::exportJsonReport
                 )

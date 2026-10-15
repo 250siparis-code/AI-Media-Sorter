@@ -18,14 +18,14 @@
     <string name="welcome_title">AI Media Sorter</string>
     <string name="welcome_description">Analyze photos and videos locally on-device, review classification results, and either export Termux-compatible shell scripts/manifests or organize files safely without cloud uploads.</string>
     <string name="feature_ai_title">On-Device Visual Classification</string>
-    <string name="feature_ai_desc">Includes a 10 KB heuristic demonstration ONNX projection model for pipeline testing, plus ML Kit Image Labeling and support for importing external MobileCLIP ONNX weights.</string>
+    <string name="feature_ai_desc">Runs real ML Kit image labeling locally. Uncertain and diagnostic results require review; scores are not measured accuracy.</string>
     <string name="feature_folders_title">Termux Script &amp; Manifest Export</string>
     <string name="feature_folders_desc">Generates classification_report.csv, file_operations.json, move_files.sh, and copy_files.sh with dry-run defaults, SHA-256 checks, and POSIX escaping.</string>
     <string name="feature_preserve_title">Timestamp &amp; Byte-Exact Preservation</string>
-    <string name="feature_preserve_desc">Preserves original filenames, EXIF metadata, raw media bytes (SHA-256 verified), and filesystem modification timestamps.</string>
+    <string name="feature_preserve_desc">Copies unchanged media bytes and verifies SHA-256 readback. When modification time cannot be verified, the default policy keeps originals.</string>
     <string name="welcome_mode_label">Active Workflow Mode</string>
     <string name="mode_analysis_only">Analysis Mode (Default — Safe Preview &amp; Export Only)</string>
-    <string name="mode_move_enabled">Move Mode (Verified In-App File Organization)</string>
+    <string name="mode_move_enabled">Organize Mode — transfers require confirmation</string>
     <string name="btn_start_sorting">Start Organizing Media</string>
     <string name="btn_resume_results">View Previous Analysis (%1$d items)</string>
 
@@ -113,7 +113,7 @@
     <string name="badge_review">REVIEW</string>
     <string name="badge_manual">MANUAL</string>
     <string name="badge_excluded">EXCLUDED</string>
-    <string name="confidence_calibrated_fmt">Score: %1$d%% (Sim: %2$.2f)</string>
+    <string name="confidence_calibrated_fmt">Model/ranking score: %1$d%%</string>
     <string name="btn_proceed_transfer">In-App File Transfer</string>
     <string name="btn_quick_reassign">Change Category</string>
     <string name="checkbox_include_export">Include in Export</string>
@@ -142,7 +142,7 @@
     <string name="details_exif_none">Not embedded in file</string>
     <string name="details_detected_category">Assigned Category</string>
     <string name="details_confidence_metrics">Uncalibrated Softmax Score: %1$d%% | Cosine Similarity: %2$.3f | Top-2 Margin: %3$.3f</string>
-    <string name="details_confidence_note">Note: Temperature-scaled softmax scores and cosine similarities are uncalibrated heuristic/ranking scores, not empirically calibrated probabilities.</string>
+    <string name="details_confidence_note">Scores are not measured accuracy. ML Kit labels do not produce image/text cosine similarity. Diagnostic ONNX scores always require review.</string>
     <string name="details_video_frames_title">Multi-Frame Video Classification Breakdown</string>
     <string name="details_ambiguous_video_warning">Ambiguous multi-scene video detected across sampled timestamps. Please verify category.</string>
     <string name="btn_change_category">Reassign Category</string>
@@ -150,13 +150,13 @@
 
     <!-- Screen 7: File Transfer -->
     <string name="transfer_title">Safe File Transfer</string>
-    <string name="transfer_analysis_mode_banner">Analysis Mode Active: Files will not be moved until you enable Move Mode or confirm execution below.</string>
+    <string name="transfer_analysis_mode_banner">Analysis Mode is active. Enable Organize Mode in Settings before confirming any transfer.</string>
     <string name="transfer_stat_total">Total Analyzed</string>
     <string name="transfer_stat_ready">Ready to Transfer</string>
     <string name="transfer_stat_review">Needs Review</string>
     <string name="transfer_stat_excluded">Excluded</string>
     <string name="transfer_proposed_structure">Proposed Destination Structure</string>
-    <string name="transfer_safety_checklist">Transactional Safety Guarantees: SHA-256 byte verification • Collision protection • Original timestamp verification</string>
+    <string name="transfer_safety_checklist">Destination readback verification • Source change checks • Collision protection • Separate modification-time verification</string>
     <string name="btn_start_transfer">Confirm &amp; Execute Transfer</string>
     <string name="dialog_confirm_transfer_title">Confirm File Operations</string>
     <string name="dialog_confirm_transfer_msg">Ready to %1$s %2$d files into categorized folders. Originals are never deleted before SHA-256 integrity and timestamp verification.</string>
@@ -171,10 +171,10 @@
     <string name="settings_amoled_mode">Pure Black AMOLED Theme (#000000)</string>
     <string name="settings_section_ai">On-Device AI Model &amp; Inference</string>
     <string name="settings_ai_engine">Active AI Classification Engine</string>
-    <string name="ai_engine_hybrid">Hybrid Demo ONNX + ML Kit Image Labeling (Offline)</string>
-    <string name="ai_engine_onnx_only">Bundled 10 KB Heuristic Demo ONNX Only</string>
+    <string name="ai_engine_hybrid">On-device ML Kit image labeling (offline)</string>
+    <string name="ai_engine_onnx_only">Diagnostic ONNX demonstration — manual review required</string>
     <string name="ai_engine_custom_clip">Custom External MobileCLIP ONNX Model</string>
-    <string name="settings_model_info">Bundled Asset: media_visual_embedder.onnx (10 KB Heuristic/Demo Projection Model, Apache-2.0 — import MobileCLIP ONNX for full semantic vision)</string>
+    <string name="settings_model_info">Automatic categories use the bundled ML Kit model. Custom descriptions match label keywords. The small ONNX model is diagnostic only; MobileCLIP import is unavailable.</string>
     <string name="btn_import_custom_onnx">Import External .onnx Model File (MobileCLIP)</string>
     <string name="settings_hw_accel">Enable NNAPI Hardware Acceleration (when supported)</string>
     <string name="settings_confidence_threshold">Minimum Uncalibrated Score Threshold: %1$d%%</string>
@@ -192,4 +192,18 @@
     <string name="btn_export_json">Export file_operations.json</string>
     <string name="export_success_fmt">Exported to: %1$s</string>
     <string name="history_empty">No completed operations recorded yet.</string>
+    <string name="settings_operation_mode">Operation mode</string>
+    <string name="export_save_zip">Save export ZIP</string>
+    <string name="export_ready">Export ready. Save the ZIP to use it outside this app.</string>
+    <string name="progress_discovering">Discovering and analyzing media</string>
+    <string name="progress_failed">Analysis could not finish</string>
+    <string name="progress_cancelled">Operation cancelled</string>
+    <string name="progress_ready">Ready to analyze</string>
+    <string name="action_failed">The action could not finish. Check folder access and settings, then try again.</string>
+    <string name="timestamp_unavailable">Filesystem modification time unavailable</string>
+    <string name="transfer_status_notice">Inspect the results before retrying an interrupted operation.</string>
+    <string name="transfer_retained_fmt">Originals retained: %1$d • Collisions skipped: %2$d</string>
+    <string name="details_model_score">Model score: %1$d%% | Top-2 margin: %2$.3f</string>
+    <string name="details_unavailable">This item is unavailable in the current source.</string>
+    <string name="btn_back">Back</string>
 </resources>

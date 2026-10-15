@@ -29,6 +29,7 @@ interface TransferDocument {
 }
 
 interface TransferDirectory {
+    fun confirmPublicationDurable(): Boolean = false
     fun find(name: String): TransferDocument?
     /** Returns null only for a collision; never truncates an existing document. */
     fun createExclusive(name: String, mimeType: String): TransferDocument?
@@ -99,6 +100,8 @@ class VerifiedTransferEngine {
         var staging: TransferDocument? = null
         var destination: TransferDocument? = null
         var destinationVerified = false
+        var stagingOwned = false
+        var destinationOwned = false
         try {
             currentCoroutineContext().ensureActive()
             staging = directory.createExclusive(".aimediasorter-" + UUID.randomUUID() + ".part", "application/octet-stream")
@@ -107,6 +110,7 @@ class VerifiedTransferEngine {
                 (sourceIdentity == null || staging.identityKey() != sourceIdentity)) {
                 "Provider returned the source as staging document."
             }
+            stagingOwned = true
             checkpoint(TransferCheckpoint("STAGING", stagingId = staging.id, checksum = initial.first,
                 originalModifiedMs = originalModified))
             copy(source, staging)
@@ -136,17 +140,19 @@ class VerifiedTransferEngine {
                 (sourceIdentity == null || finalDestination.identityKey() != sourceIdentity)) {
                 "Storage provider returned an existing source/staging document."
             }
+            destinationOwned = true
             checkpoint(TransferCheckpoint("PUBLISHING", finalDestination.id, staging.id, initial.first, originalModified))
             copy(checkNotNull(staging), finalDestination)
             require(hash(finalDestination) == initial) { "Final destination readback mismatch; original preserved." }
             val timestamp = finalDestination.setTimestamp(originalModified)
+            val publicationDurable = directory.confirmPublicationDurable()
             destinationVerified = true
             checkpoint(TransferCheckpoint("DESTINATION_VERIFIED", finalDestination.id, staging.id,
                 initial.first, originalModified, timestamp.actualDestinationLastModifiedMs, timestamp.preserved))
             var actualMethod = TransferMethod.COPY
             var retained = true
             var detail = "Destination bytes verified by SHA-256 readback. " + timestamp.note
-            if (method == TransferMethod.MOVE && sourceIdentity != null && finalDestination.identityKey() != null &&
+            if (method == TransferMethod.MOVE && publicationDurable && sourceIdentity != null && finalDestination.identityKey() != null &&
                 (timestamp.preserved || timestampPolicy == TimestampPolicy.BEST_EFFORT_WITH_REPORT)) {
                 currentCoroutineContext().ensureActive()
                 require(source.exists() && source.identityKey() == sourceIdentity && hash(source) == initial &&
@@ -165,7 +171,7 @@ class VerifiedTransferEngine {
                     detail += " Source deletion failed; verified copy retained and MOVE was not completed."
                 }
             } else if (method == TransferMethod.MOVE) {
-                detail += " Original retained because modification time or stable storage identity could not be verified."
+                detail += " Original retained because modification time, durable publication or stable storage identity could not be verified."
             }
             withContext(NonCancellable) {
                 checkpoint(TransferCheckpoint("COMPLETED", finalDestination.id, staging.id,
@@ -180,9 +186,9 @@ class VerifiedTransferEngine {
             throw cancelled
         } finally {
             withContext(NonCancellable + Dispatchers.IO) {
-                runCatching { staging?.delete() }
+                if (stagingOwned) runCatching { staging?.delete() }
                 // A verified final copy is retained for recovery; never delete a source here.
-                if (!destinationVerified) runCatching { destination?.delete() }
+                if (destinationOwned && !destinationVerified) runCatching { destination?.delete() }
             }
         }
     }

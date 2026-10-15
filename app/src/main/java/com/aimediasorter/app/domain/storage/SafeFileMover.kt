@@ -47,6 +47,7 @@ class SafeFileMover(
         checkpoint: suspend (TransferCheckpoint) -> Unit = {}
     ): SingleTransferOutcome = withContext(Dispatchers.IO) {
         currentCoroutineContext().ensureActive()
+        var latestCheckpoint: TransferCheckpoint? = null
         try {
             require(operationMode == OperationMode.MOVE_FILES) { "Transfer blocked: Analysis Mode is active." }
             require(!scanner.isDestinationInsideSource(sourceRootUri, destinationRootUri)) {
@@ -83,7 +84,10 @@ class SafeFileMover(
             }
             val receipt = engine.transfer(source, directory, item.fileName, item.mimeType, transferMethod,
                 collisionPolicy, timestampPolicy, item.sha256Checksum, item.fileSizeBytes,
-                item.originalLastModifiedMs, checkpoint)
+                item.originalLastModifiedMs) { state ->
+                latestCheckpoint = state
+                checkpoint(state)
+            }
             if (receipt.skipped) {
                 return@withContext buildSkippedCollisionOutcome(sessionId, item,
                     receipt.destination?.id.orEmpty(), transferMethod, receipt.details)
@@ -100,8 +104,16 @@ class SafeFileMover(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            createFailureOutcome(sessionId, item, transferMethod,
-                "Transfer failed; consult recovery journal before retrying. " + error.message)
+            val state = latestCheckpoint
+            val status = if (state?.destinationId != null) TransferItemStatus.RECOVERY_REQUIRED else TransferItemStatus.FAILED
+            val failed = createFailureOutcome(sessionId, item, transferMethod,
+                "Transfer interrupted; inspect recorded destination and source before retrying. " + error.message)
+            failed.copy(status = status, destinationUriString = state?.destinationId,
+                sha256Checksum = state?.checksum, timestampPreserved = state?.timestampPreserved ?: false,
+                destinationLastModifiedMs = state?.destinationModifiedMs,
+                logEntry = failed.logEntry.copy(status = status.name, destinationUri = state?.destinationId,
+                    sha256Checksum = state?.checksum, timestampPreserved = state?.timestampPreserved ?: false,
+                    destinationLastModifiedMs = state?.destinationModifiedMs))
         }
     }
 
@@ -116,7 +128,8 @@ class SafeFileMover(
         }.getOrNull()
         override fun exists(): Boolean = document.exists()
         override fun size(): Long = document.length()
-        override fun modifiedMs(): Long = document.lastModified()
+        override fun modifiedMs(): Long = timestampManager.resolveFilesystemLastModified(document.uri,
+            document.uri.path?.takeIf { document.uri.scheme == "file" }, 0)
         override fun input(): InputStream = context.contentResolver.openInputStream(document.uri)
             ?: error("Source read permission revoked.")
         override fun output(): OutputStream = context.contentResolver.openOutputStream(document.uri, "wt")
@@ -131,6 +144,13 @@ class SafeFileMover(
     }
 
     private inner class SafDirectory(private val document: DocumentFile) : TransferDirectory {
+        override fun confirmPublicationDurable(): Boolean = runCatching {
+            context.contentResolver.openFileDescriptor(document.uri, "r")?.use {
+                if (!OsConstants.S_ISDIR(Os.fstat(it.fileDescriptor).st_mode)) return@use false
+                Os.fsync(it.fileDescriptor)
+                true
+            } ?: false
+        }.getOrDefault(false)
         override fun find(name: String): TransferDocument? = document.findFile(name)?.let { SafDocument(it) }
         override fun createExclusive(name: String, mimeType: String): TransferDocument? {
             SafeRelativePath.fileName(name)

@@ -46,8 +46,12 @@ fun AnalysisProgressScreen(
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = when {
+                progress.errorMessage == "CANCELLED" -> stringResource(R.string.progress_cancelled)
+                progress.errorMessage != null -> stringResource(R.string.progress_failed)
                 progress.isPaused -> stringResource(R.string.progress_paused)
+                progress.isDiscovering -> stringResource(R.string.progress_discovering)
                 progress.isRunning -> stringResource(R.string.progress_analyzing)
+                progress.processedFiles == 0 -> stringResource(R.string.progress_ready)
                 else -> stringResource(R.string.progress_completed)
             },
             style = MaterialTheme.typography.bodyMedium,
@@ -57,7 +61,9 @@ fun AnalysisProgressScreen(
         Spacer(modifier = Modifier.height(28.dp))
 
         Box(contentAlignment = Alignment.Center, modifier = Modifier.size(168.dp)) {
-            CircularProgressIndicator(
+            if (progress.isDiscovering) {
+                CircularProgressIndicator(modifier = Modifier.fillMaxSize(), color = PrimaryPurple, strokeWidth = 12.dp)
+            } else CircularProgressIndicator(
                 progress = { fraction },
                 modifier = Modifier.fillMaxSize(),
                 color = PrimaryPurple,
@@ -66,7 +72,7 @@ fun AnalysisProgressScreen(
             )
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    text = "$percentage%",
+                    text = if (progress.isDiscovering) "…" else "$percentage%",
                     style = MaterialTheme.typography.headlineLarge,
                     fontWeight = FontWeight.Bold
                 )
@@ -126,7 +132,7 @@ fun AnalysisProgressScreen(
         if (progress.errorMessage != null) {
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = progress.errorMessage,
+                text = stringResource(R.string.action_failed),
                 color = StatusCoral,
                 style = MaterialTheme.typography.labelMedium
             )

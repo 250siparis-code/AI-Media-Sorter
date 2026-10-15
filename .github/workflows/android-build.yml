@@ -27,7 +27,7 @@ jobs:
       - name: Verify standalone transfer executor
         run: python3 -m unittest discover -s tests -v
       - name: Clean build, unit tests and lint
-        run: gradle clean testDebugUnitTest lintDebug assembleDebug --stacktrace
+        run: ./gradlew clean testDebugUnitTest lintDebug assembleDebug --stacktrace
       - uses: actions/upload-artifact@v4
         with:
           name: AIMediaSorter-debug-apk

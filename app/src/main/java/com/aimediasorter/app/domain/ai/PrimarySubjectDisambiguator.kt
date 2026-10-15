@@ -24,7 +24,7 @@ data class BundledVocabPayload(
  * 2. Primary-Subject Disambiguation: Ensures a photo of a person holding a plate of food (or with a pet,
  *    vehicle, or device as the primary central subject) is classified by its primary subject rather than
  *    defaulting to "People" merely because a human is visible.
- * 3. Temperature-calibrated confidence calculation strictly separated from raw cosine similarity.
+ * 3. Uncalibrated diagnostic ranking score calculation strictly separated from raw cosine similarity.
  */
 class PrimarySubjectDisambiguator(vocabJsonString: String) {
 
@@ -141,14 +141,14 @@ class PrimarySubjectDisambiguator(vocabJsonString: String) {
         val foodScore = fusedLogits["cat_food"] ?: 0f
         val centerFoodFeature = if (visualFeatures64D.size >= 16) visualFeatures64D[8] else 0f
 
-        if (peopleScore > 0.25f && (foodScore > 0.22f || centerFoodFeature > 0.35f)) {
+        if (fusedLogits.containsKey("cat_food") && peopleScore > 0.25f && (foodScore > 0.22f || centerFoodFeature > 0.35f)) {
             // Person holding a plate of food or sitting behind a meal: promote Food as primary subject
             fusedLogits["cat_food"] = max(foodScore, peopleScore + 0.18f)
             fusedLogits["cat_people"] = peopleScore * 0.65f
             disambiguationNote = "Primary-subject disambiguation: Foreground Food prioritized over incidental Person presence."
         }
 
-        // Apply temperature-scaled Softmax over enabled categories to obtain calibrated probabilities
+        // Apply temperature-scaled Softmax over enabled categories to obtain heuristic ranking weights
         val temperature = 0.35f
         var maxLogit = Float.NEGATIVE_INFINITY
         for ((_, v) in fusedLogits) {

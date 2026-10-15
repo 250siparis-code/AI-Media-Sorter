@@ -8,6 +8,7 @@ import com.aimediasorter.app.data.model.AiEngineMode
 import com.aimediasorter.app.data.model.ClassificationScoreMetrics
 import com.aimediasorter.app.data.model.FrameClassificationSample
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -53,6 +54,7 @@ class VideoFrameAnalyzer(
         val retriever = MediaMetadataRetriever()
         val frameSamples = mutableListOf<FrameClassificationSample>()
         val categoryResults = mutableListOf<ClassificationScoreMetrics>()
+        val distinctFrames = hashSetOf<Int>()
 
         try {
             if (!filePath.isNullOrBlank() && File(filePath).exists()) {
@@ -64,8 +66,9 @@ class VideoFrameAnalyzer(
             val resolvedDurationMs = if (durationMs > 0L) {
                 durationMs
             } else {
-                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 5000L
-            }.coerceAtLeast(1000L)
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+            }
+            require(resolvedDurationMs > 0) { "Video has no valid duration metadata." }
 
             val percents = selectAdaptiveSamplePercents(resolvedDurationMs)
 
@@ -77,14 +80,17 @@ class VideoFrameAnalyzer(
                 val frameBitmap = runCatching {
                     retriever.getScaledFrameAtTime(
                         targetTimeUs,
-                        MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                        MediaMetadataRetriever.OPTION_CLOSEST,
                         DECODE_FRAME_DIMENSION,
                         DECODE_FRAME_DIMENSION
-                    ) ?: retriever.getFrameAtTime(targetTimeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                    )
                 }.getOrNull()
 
                 if (frameBitmap != null) {
                     try {
+                        val pixels = IntArray(frameBitmap.width * frameBitmap.height)
+                        frameBitmap.getPixels(pixels, 0, frameBitmap.width, 0, 0, frameBitmap.width, frameBitmap.height)
+                        if (!distinctFrames.add(pixels.contentHashCode())) continue
                         val frameMetric = classifier.classifyBitmap(
                             bitmap = frameBitmap,
                             enabledCategories = enabledCategories,
@@ -110,6 +116,8 @@ class VideoFrameAnalyzer(
                     }
                 }
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             return@withContext ClassificationScoreMetrics(
                 categoryId = "cat_other",
@@ -118,7 +126,7 @@ class VideoFrameAnalyzer(
                 rawSimilarityScore = 0f,
                 topMargin = 0f,
                 needsManualReview = true,
-                primarySubjectNote = "Corrupted or unsupported video stream: ${e.message}"
+                primarySubjectNote = "Video decoding or inference failed: ${e.message}"
             )
         } finally {
             runCatching { retriever.release() }
@@ -138,70 +146,6 @@ class VideoFrameAnalyzer(
         enabledCategories: List<CategoryEntity>,
         confidenceThreshold: Float
     ): ClassificationScoreMetrics {
-        if (frameMetrics.isEmpty()) {
-            return ClassificationScoreMetrics(
-                categoryId = "cat_other",
-                categoryName = "Other",
-                calibratedConfidence = 0f,
-                rawSimilarityScore = 0f,
-                topMargin = 0f,
-                needsManualReview = true,
-                primarySubjectNote = "No decodable video frames could be extracted."
-            )
-        }
-
-        val weightedVotes = mutableMapOf<String, Float>()
-        val similaritySum = mutableMapOf<String, Float>()
-        val frameCounts = mutableMapOf<String, Int>()
-        val idToName = mutableMapOf<String, String>()
-
-        var totalWeight = 0f
-        for (m in frameMetrics) {
-            idToName[m.categoryId] = m.categoryName
-            val weight = m.calibratedConfidence.coerceAtLeast(0.1f)
-            weightedVotes[m.categoryId] = (weightedVotes[m.categoryId] ?: 0f) + weight
-            similaritySum[m.categoryId] = (similaritySum[m.categoryId] ?: 0f) + m.rawSimilarityScore
-            frameCounts[m.categoryId] = (frameCounts[m.categoryId] ?: 0) + 1
-            totalWeight += weight
-        }
-
-        val rankedIds = weightedVotes.keys.sortedByDescending { weightedVotes[it] ?: 0f }
-        val dominantId = rankedIds.first()
-        val secondaryId = rankedIds.getOrNull(1)
-
-        val dominantShare = if (totalWeight > 0f) (weightedVotes[dominantId] ?: 0f) / totalWeight else 0f
-        val secondaryShare = if (secondaryId != null && totalWeight > 0f) (weightedVotes[secondaryId] ?: 0f) / totalWeight else 0f
-        val dominantCount = frameCounts[dominantId] ?: 1
-
-        val avgConfidence = frameMetrics
-            .filter { it.categoryId == dominantId }
-            .map { it.calibratedConfidence }
-            .average()
-            .toFloat()
-
-        val avgSimilarity = (similaritySum[dominantId] ?: 0f) / dominantCount.toFloat()
-        val margin = (dominantShare - secondaryShare).coerceAtLeast(0f)
-
-        // Multi-scene ambiguity detection: if >= 2 unrelated categories appear across frames with close vote shares
-        val isMultiSceneAmbiguous = secondaryId != null && secondaryShare >= 0.34f && margin < 0.25f
-        val calibratedAggregatedConf = (avgConfidence * 0.7f + dominantShare * 0.3f).coerceIn(0f, 1f)
-        val needsReview = isMultiSceneAmbiguous || calibratedAggregatedConf < confidenceThreshold || dominantId == "cat_other"
-
-        return ClassificationScoreMetrics(
-            categoryId = dominantId,
-            categoryName = idToName[dominantId] ?: enabledCategories.firstOrNull { it.id == dominantId }?.name ?: "Other",
-            calibratedConfidence = calibratedAggregatedConf,
-            rawSimilarityScore = avgSimilarity,
-            topMargin = margin,
-            secondaryCategoryName = secondaryId?.let { idToName[it] },
-            isAmbiguousMultiScene = isMultiSceneAmbiguous,
-            needsManualReview = needsReview,
-            primarySubjectNote = if (isMultiSceneAmbiguous) {
-                "Multi-scene video detected (${idToName[dominantId]} vs ${idToName[secondaryId]} across ${frameSamples.size} sampled frames)."
-            } else {
-                "Aggregated across ${frameSamples.size} video frames (${frameSamples.joinToString { "${it.timestampPercent}%" }})."
-            },
-            frameSamples = frameSamples
-        )
+        return VideoPredictionAggregator.aggregate(frameMetrics, frameSamples, enabledCategories, confidenceThreshold)
     }
 }

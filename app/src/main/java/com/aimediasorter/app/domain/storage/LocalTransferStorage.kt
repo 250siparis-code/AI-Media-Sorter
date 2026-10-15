@@ -1,7 +1,8 @@
 package com.aimediasorter.app.domain.storage
 
 import java.io.File
-import java.io.FileOutputStream
+import java.nio.channels.FileChannel
+import java.nio.channels.Channels
 import java.io.InputStream
 import java.io.OutputStream
 import java.nio.file.Files
@@ -33,9 +34,17 @@ class LocalTransferDocument(val file: File) : TransferDocument {
     }
     override fun output(): OutputStream {
         checkIdentity()
-        return FileOutputStream(file, false)
+        val channel = FileChannel.open(file.toPath(), StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS)
+        try {
+            checkIdentity()
+            channel.truncate(0)
+            return DurableOutput(channel)
+        } catch (error: Exception) {
+            channel.close()
+            throw error
+        }
     }
-    override fun sync(output: OutputStream) { (output as FileOutputStream).fd.sync() }
+    override fun sync(output: OutputStream) { (output as DurableOutput).force() }
     override fun setTimestamp(originalMs: Long): TimestampVerificationResult {
         checkIdentity()
         val accepted = originalMs > 0 && file.setLastModified(originalMs)
@@ -55,10 +64,20 @@ class LocalTransferDocument(val file: File) : TransferDocument {
 class LocalTransferDirectory(directory: File, allowedRoot: File) : TransferDirectory {
     private val root = allowedRoot.canonicalFile
     private val dir = directory.canonicalFile
+    private val durabilityBoundary = generateSequence(root) { it.parentFile }.first { it.exists() }
     init {
         require(dir == root || dir.toPath().startsWith(root.toPath())) { "Destination escapes selected root." }
         check(dir.isDirectory || dir.mkdirs()) { "Cannot create destination directory." }
     }
+    override fun confirmPublicationDurable(): Boolean = runCatching {
+        var current: File? = dir
+        while (current != null) {
+            FileChannel.open(current.toPath(), StandardOpenOption.READ).use { it.force(true) }
+            if (current == durabilityBoundary) break
+            current = current.parentFile
+        }
+        true
+    }.getOrDefault(false)
     override fun find(name: String): TransferDocument? {
         val file = File(dir, SafeRelativePath.fileName(name))
         return if (Files.exists(file.toPath(), LinkOption.NOFOLLOW_LINKS)) LocalTransferDocument(file) else null
@@ -71,4 +90,13 @@ class LocalTransferDirectory(directory: File, allowedRoot: File) : TransferDirec
             LocalTransferDocument(file)
         } catch (_: FileAlreadyExistsException) { null }
     }
+}
+
+private class DurableOutput(private val channel: FileChannel) : OutputStream() {
+    private val delegate = Channels.newOutputStream(channel)
+    override fun write(value: Int) = delegate.write(value)
+    override fun write(buffer: ByteArray, offset: Int, length: Int) = delegate.write(buffer, offset, length)
+    override fun flush() = delegate.flush()
+    fun force() = channel.force(true)
+    override fun close() = delegate.close()
 }

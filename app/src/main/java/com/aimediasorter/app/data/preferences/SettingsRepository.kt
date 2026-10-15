@@ -1,6 +1,7 @@
 package com.aimediasorter.app.data.preferences
 
 import android.content.Context
+import kotlinx.serialization.Serializable
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.map
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "ai_media_sorter_settings")
 
+@Serializable
 data class AppSettings(
     val sourceUri: String = "",
     val destinationUri: String = "",
@@ -28,12 +30,12 @@ data class AppSettings(
     val mediaTypeFilter: MediaTypeFilter = MediaTypeFilter.ALL,
     val enabledExtensions: Set<String> = DefaultCategories.ALL_SUPPORTED_EXTENSIONS,
     val operationMode: OperationMode = OperationMode.ANALYSIS_ONLY, // Default safe mode
-    val transferMethod: TransferMethod = TransferMethod.MOVE,
+    val transferMethod: TransferMethod = TransferMethod.COPY,
     val confidenceThreshold: Float = 0.60f,
     val aiEngineMode: AiEngineMode = AiEngineMode.HYBRID_ONNX_AND_MLKIT,
     val customOnnxModelPath: String = "",
     val hardwareAcceleration: Boolean = true,
-    val timestampPolicy: TimestampPolicy = TimestampPolicy.BEST_EFFORT_WITH_REPORT,
+    val timestampPolicy: TimestampPolicy = TimestampPolicy.FALLBACK_COPY_KEEP_ORIGINAL,
     val collisionPolicy: CollisionPolicy = CollisionPolicy.RENAME_WITH_SUFFIX,
     val previewBeforeMoving: Boolean = true,
     val languageCode: String = "en",
@@ -74,17 +76,19 @@ class SettingsRepository(private val context: Context) {
                 OperationMode.valueOf(prefs[Keys.OPERATION_MODE] ?: OperationMode.ANALYSIS_ONLY.name)
             }.getOrDefault(OperationMode.ANALYSIS_ONLY),
             transferMethod = runCatching {
-                TransferMethod.valueOf(prefs[Keys.TRANSFER_METHOD] ?: TransferMethod.MOVE.name)
-            }.getOrDefault(TransferMethod.MOVE),
+                TransferMethod.valueOf(prefs[Keys.TRANSFER_METHOD] ?: TransferMethod.COPY.name)
+            }.getOrDefault(TransferMethod.COPY),
             confidenceThreshold = prefs[Keys.CONFIDENCE_THRESHOLD] ?: 0.60f,
             aiEngineMode = runCatching {
                 AiEngineMode.valueOf(prefs[Keys.AI_ENGINE_MODE] ?: AiEngineMode.HYBRID_ONNX_AND_MLKIT.name)
-            }.getOrDefault(AiEngineMode.HYBRID_ONNX_AND_MLKIT),
+            }.getOrDefault(AiEngineMode.HYBRID_ONNX_AND_MLKIT).let {
+                if (it == AiEngineMode.CUSTOM_MOBILECLIP_ONNX) AiEngineMode.HYBRID_ONNX_AND_MLKIT else it
+            },
             customOnnxModelPath = prefs[Keys.CUSTOM_ONNX_PATH] ?: "",
             hardwareAcceleration = prefs[Keys.HARDWARE_ACCEL] ?: true,
             timestampPolicy = runCatching {
-                TimestampPolicy.valueOf(prefs[Keys.TIMESTAMP_POLICY] ?: TimestampPolicy.BEST_EFFORT_WITH_REPORT.name)
-            }.getOrDefault(TimestampPolicy.BEST_EFFORT_WITH_REPORT),
+                TimestampPolicy.valueOf(prefs[Keys.TIMESTAMP_POLICY] ?: TimestampPolicy.FALLBACK_COPY_KEEP_ORIGINAL.name)
+            }.getOrDefault(TimestampPolicy.FALLBACK_COPY_KEEP_ORIGINAL),
             collisionPolicy = runCatching {
                 CollisionPolicy.valueOf(prefs[Keys.COLLISION_POLICY] ?: CollisionPolicy.RENAME_WITH_SUFFIX.name)
             }.getOrDefault(CollisionPolicy.RENAME_WITH_SUFFIX),
@@ -101,7 +105,7 @@ class SettingsRepository(private val context: Context) {
     suspend fun toggleExtension(ext: String) = context.dataStore.edit { prefs ->
         val current = (prefs[Keys.ENABLED_EXTENSIONS] ?: DefaultCategories.ALL_SUPPORTED_EXTENSIONS).toMutableSet()
         val normalized = ext.lowercase()
-        if (current.contains(normalized) && current.size > 1) {
+        if (current.contains(normalized)) {
             current.remove(normalized)
         } else {
             current.add(normalized)

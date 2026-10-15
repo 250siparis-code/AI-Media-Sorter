@@ -40,7 +40,10 @@ fun MediaDetailsScreen(
                 .background(AmoledPureBlack),
             contentAlignment = Alignment.Center
         ) {
-            CircularProgressIndicator(color = PrimaryPurple)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(stringResource(R.string.details_unavailable))
+                TextButton(onClick = onBack) { Text(stringResource(R.string.btn_back)) }
+            }
         }
         return
     }
@@ -60,6 +63,7 @@ fun MediaDetailsScreen(
             .verticalScroll(rememberScrollState())
             .padding(20.dp)
     ) {
+        TextButton(onClick = onBack) { Text(stringResource(R.string.btn_back)) }
         Text(
             text = stringResource(R.string.details_title),
             style = MaterialTheme.typography.headlineMedium
@@ -68,7 +72,7 @@ fun MediaDetailsScreen(
         Spacer(modifier = Modifier.height(14.dp))
 
         AsyncImage(
-            model = item.uriString,
+            model = item.destinationUriString ?: item.uriString,
             contentDescription = item.fileName,
             contentScale = ContentScale.Fit,
             modifier = Modifier
@@ -116,7 +120,7 @@ fun MediaDetailsScreen(
                 }
                 DetailRow(
                     stringResource(R.string.details_last_modified),
-                    dateFormat.format(Date(item.originalLastModifiedMs))
+                    if (item.originalLastModifiedMs > 0) dateFormat.format(Date(item.originalLastModifiedMs)) else stringResource(R.string.timestamp_unavailable)
                 )
                 DetailRow(
                     stringResource(R.string.details_exif_date),
@@ -125,12 +129,10 @@ fun MediaDetailsScreen(
                 )
                 DetailRow(stringResource(R.string.details_detected_category), item.effectiveCategoryName)
                 Text(
-                    text = stringResource(
-                        R.string.details_confidence_metrics,
-                        (item.calibratedConfidence * 100).toInt(),
-                        item.rawSimilarityScore,
-                        item.topMargin
-                    ),
+                    text = if (item.inferenceEngine.startsWith("ML_KIT")) stringResource(
+                        R.string.details_model_score, (item.calibratedConfidence * 100).toInt(), item.topMargin
+                    ) else stringResource(R.string.details_confidence_metrics,
+                        (item.calibratedConfidence * 100).toInt(), item.rawSimilarityScore, item.topMargin),
                     style = MaterialTheme.typography.labelMedium,
                     color = PrimaryPurpleLight
                 )
