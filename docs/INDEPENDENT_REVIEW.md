@@ -8,7 +8,7 @@ Source of truth: the GitHub repository. The supplied ZIP is excluded from the fi
 
 The public repository is accessible. It contains a single native Android application module, Kotlin/Compose/Material 3 screens, a repository layer, Room persistence, DataStore settings and WorkManager workers. Existing functional architecture and screens were retained.
 
-The build uses AGP 8.7.2, Kotlin 2.0.21, JDK 17, Gradle 8.9, compile/target SDK 35 and minimum SDK 29. The official wrapper scripts/JAR and distribution checksum are checked in. The wrapper JAR's SHA-256 was independently compared with Gradle's release checksum.
+The build uses AGP 8.7.2, Kotlin 2.0.21, JDK 17, Gradle 8.9, compile/target SDK 35 and minimum SDK 35 (Android 15). The official wrapper scripts/JAR and distribution checksum are checked in. The wrapper JAR's SHA-256 was independently compared with Gradle's release checksum.
 
 Before fixes, TermuxOperationExporter contained invalid mixed Python/Kotlin source; backup-rule validation also failed during independent CI. The repaired branch passed a clean debug build, lint, 21 JVM tests and 14 Python tests at bf01a9752def0c258b92e1b65ffc72efb77ca6a9:
 https://github.com/250siparis-code/AI-Media-Sorter/actions/runs/38661853545
@@ -107,7 +107,7 @@ Working behavior is defined by the executed tests below. Semantic accuracy, phys
 
 Before testing with a real archive, verify the phone/provider using copied representative samples and retain a separate backup. Begin with the default COPY operation and inspect modification-time reports. MOVE is not approved for a provider that cannot establish the required identity, publication durability and timestamp policy.
 
-## Final Verification Record
+## Historical Verification Before the Android 15 Minimum
 
 Verified implementation commit: b00bb10fc178c28c00d6a171699b5523f7b74a12.
 Verification date: 2026-10-15 UTC.
@@ -142,4 +142,32 @@ Reports:
 - Native API 35: artifact 11944104871.
 - Native API 35 with 16 KB pages: artifact 11943979784.
 
-This verification establishes buildability and the tested synthetic/isolated behavior. It does not establish a semantic accuracy percentage, physical-phone throughput/battery/RAM, release R8/signing behavior, every OEM/provider contract, or safe destructive acceptance on a real archive. Main remains unchanged at b32444218f4a5e262803199abbd70e98df786ffe. Subsequent report-only changes do not change the verified application code.
+This verification establishes buildability and the tested synthetic/isolated behavior. It does not establish a semantic accuracy percentage, physical-phone throughput/battery/RAM, release R8/signing behavior, every OEM/provider contract, or safe destructive acceptance on a real archive. Main remains unchanged at b32444218f4a5e262803199abbd70e98df786ffe. These results and the linked API-29-compatible APK describe that earlier implementation. The current platform requirement and its verification follow below.
+
+
+## Android 15+ Requirement and Verification
+
+The minimum supported OS is now **Android 15 (API 35)**. Compile/target SDK remain 35; no maximum OS version is declared. The API 29 emulator entry was removed from CI; API 35 with 4 KB and 16 KB pages remains. README and built-APK inspection now use the same minimum. This platform update changes configuration and documentation only; AI and transfer source files are unchanged.
+
+Verified application/configuration commit: `1f8eb051199c48021e1291af7e8db13cd5a18912`.
+Full workflow: **SUCCESS** on 2026-10-15 UTC.
+https://github.com/250siparis-code/AI-Media-Sorter/actions/runs/38682222910
+
+| Check | Executed result |
+| --- | --- |
+| Clean debug build, JVM tests, lint and instrumentation compilation | PASS |
+| Python executor tests | 14 passed |
+| Android 15 / API 35, 4 KB pages | 18 tests passed |
+| Android 15 / API 35, 16 KB pages | 18 tests passed |
+| APK minimum/target SDK | 35 / 35, inspected from the actual APK |
+| APK v2 signature, ZIP alignment and 64-bit ELF 16 KB alignment | PASS |
+
+[Download the Android 15+ debug APK](https://github.com/250siparis-code/AI-Media-Sorter/actions/runs/38682222910/artifacts/11948872046).
+The artifact download API successfully returned the archive bytes.
+APK size: 187,562,102 bytes.
+APK SHA-256: `5a4e9b4737d5747d6cf5c637832d09d8ff92a1d39876e7499c85b90ebc37e577`.
+Artifact ZIP SHA-256: `0c59fbfe56281b0edab959165ce5108f3eef2b90c2ec145852a29616e66fc2e5` (separate from the APK digest).
+
+Reports: verification/lint/APK artifact `11948922123`; API 35 artifact `11948827771`; API 35 with 16 KB pages artifact `11949500421`.
+
+This report-only follow-up leaves the verified application, tests and build configuration unchanged. Physical-device/OEM acceptance and semantic accuracy remain subject to the limitations above.
