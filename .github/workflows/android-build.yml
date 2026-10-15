@@ -33,7 +33,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh run download 38682222910 --repo 250siparis-code/AI-Media-Sorter --name AIMediaSorter-debug-apk --dir baseline-apk
-          python3 scripts/measure_apk.py baseline-apk/app-debug.apk app/build/reports/baseline-size.json
+          mkdir -p size-reports
+          python3 scripts/measure_apk.py baseline-apk/app-debug.apk size-reports/baseline-size.json
           "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" dex packages --defined-only baseline-apk/app-debug.apk > baseline-dex-packages.txt
       - name: Install decoder fixture generator
         run: sudo apt-get update && sudo apt-get install --no-install-recommends -y ffmpeg
@@ -83,6 +84,7 @@ jobs:
             app/build/reports/*-inspection.json
             app/build/reports/*-size.json
             *-dex-packages.txt
+            size-reports/*.json
   android-device-tests:
     needs: build
     runs-on: ubuntu-latest
@@ -144,7 +146,9 @@ jobs:
           script: bash scripts/run_native_tests.sh "${{ matrix.variant }}" "${{ matrix.page_size }}"
       - name: Capture test logcat
         if: always()
-        run: timeout 20s adb logcat -d > android-test-logcat.txt || true
+        run: |
+          timeout 20s adb logcat -d > android-test-logcat.txt || true
+          if [ "${{ job.status }}" != "success" ]; then tail -n 300 android-test-logcat.txt; fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:

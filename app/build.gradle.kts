@@ -23,6 +23,7 @@ android {
         ndk { abiFilters += selectedAbi }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testProguardFiles("test-proguard-rules.pro")
         vectorDrawables {
             useSupportLibrary = true
         }
