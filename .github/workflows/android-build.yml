@@ -7,6 +7,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: android-${{ github.ref }}
   cancel-in-progress: true
@@ -26,6 +27,14 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Measure verified baseline APK
+        if: github.job == 'build'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 38682222910 --repo 250siparis-code/AI-Media-Sorter --name AIMediaSorter-debug-apk --dir baseline-apk
+          python3 scripts/measure_apk.py baseline-apk/app-debug.apk app/build/reports/baseline-size.json
+          "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" dex packages --defined-only baseline-apk/app-debug.apk > baseline-dex-packages.txt
       - name: Install decoder fixture generator
         run: sudo apt-get update && sudo apt-get install --no-install-recommends -y ffmpeg
       - name: Generate isolated decoder fixture
@@ -36,6 +45,10 @@ jobs:
         run: ./gradlew clean testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --stacktrace
       - name: Inspect generated APK
         run: python3 scripts/inspect_apk.py app/build/outputs/apk/debug/app-debug.apk
+      - name: Measure current debug APK
+        run: |
+          python3 scripts/measure_apk.py app/build/outputs/apk/debug/app-debug.apk app/build/reports/current-size.json
+          "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" dex packages --defined-only app/build/outputs/apk/debug/app-debug.apk > current-dex-packages.txt
       - uses: actions/upload-artifact@v4
         with:
           name: AIMediaSorter-debug-apk
@@ -49,6 +62,8 @@ jobs:
             app/build/reports/tests/
             app/build/reports/lint-results-debug.*
             app/build/reports/apk-inspection.json
+            app/build/reports/*-size.json
+            *-dex-packages.txt
   android-device-tests:
     needs: build
     runs-on: ubuntu-latest
@@ -57,6 +72,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - api: 34
+            target: default
+            label: '34'
+            page_size: 4096
           - api: 35
             target: default
             label: '35'

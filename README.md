@@ -1,6 +1,6 @@
 # AI Media Sorter
 
-Requires **Android 15 (API 35) or later**.
+Requires **Android 14 (API 34) or later**.
 
 Native Android application using Kotlin, Jetpack Compose, Material 3, Room and WorkManager. The UI uses an AMOLED black background and purple accents, with English and Turkish resources.
 
@@ -41,7 +41,7 @@ Requirements: JDK 17, Android SDK Platform 35, Build Tools 35.0.0 and the checke
     ./gradlew clean testDebugUnitTest lintDebug assembleDebug
     python3 -m unittest discover -s tests -v
 
-For native instrumentation, install FFmpeg and start an API 35+ emulator or connect a test device:
+For native instrumentation, install FFmpeg and start an API 34+ emulator or connect a test device:
 
     python3 scripts/generate_test_media.py
     ./gradlew connectedDebugAndroidTest
