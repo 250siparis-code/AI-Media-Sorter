@@ -63,7 +63,8 @@ jobs:
             python3 scripts/measure_apk.py "$apk" "app/build/reports/$(basename "$apk" .apk)-size.json"
             python3 scripts/inspect_apk.py "$apk"
           done
-          python3 -c 'import pathlib; names={"<TOTAL>","kotlin","kotlinx","androidx.compose","androidx.room","androidx.work","ai.onnxruntime","com.google.mlkit","com.google.android.gms"}; print("\n".join(l for l in pathlib.Path("baseline-dex-packages.txt").read_text().splitlines() if l.startswith("P ") and l.split()[-1] in names))'
+          python3 scripts/verify_optimized_apks.py
+          python3 -c 'import pathlib; names={"<TOTAL>","kotlin","kotlinx","androidx.compose","androidx.room","androidx.work","ai.onnxruntime","com.google.mlkit","com.google.android.gms"}; print("\n".join(l for l in pathlib.Path("baseline-dex-packages.txt").read_text().splitlines() if l.lstrip().startswith("P ") and l.split()[-1] in names))'
       - uses: actions/upload-artifact@v4
         with:
           name: optimized-APKs-QA-only
