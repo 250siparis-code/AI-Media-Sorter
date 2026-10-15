@@ -38,7 +38,8 @@ class VisualFeatureExtractor(private val context: Context) {
         uri: Uri,
         filePath: String?,
         orientationDegrees: Int,
-        targetSize: Int = MODEL_INPUT_SIZE
+        targetSize: Int = MODEL_INPUT_SIZE,
+        isMirrored: Boolean = false
     ): Bitmap? {
         val boundsOptions = BitmapFactory.Options().apply {
             inJustDecodeBounds = true
@@ -76,8 +77,11 @@ class VisualFeatureExtractor(private val context: Context) {
             }
         } ?: return null
 
-        val orientedBitmap = if (orientationDegrees != 0) {
-            val matrix = Matrix().apply { postRotate(orientationDegrees.toFloat()) }
+        val orientedBitmap = if (orientationDegrees != 0 || isMirrored) {
+            val matrix = Matrix().apply {
+                if (isMirrored) postScale(-1f, 1f)
+                postRotate(orientationDegrees.toFloat())
+            }
             val rotated = Bitmap.createBitmap(
                 rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true
             )
@@ -87,7 +91,10 @@ class VisualFeatureExtractor(private val context: Context) {
             rawBitmap
         }
 
-        val resized = Bitmap.createScaledBitmap(orientedBitmap, targetSize, targetSize, true)
+        val ratio = minOf(1f, targetSize.toFloat() / maxOf(orientedBitmap.width, orientedBitmap.height))
+        val resized = Bitmap.createScaledBitmap(orientedBitmap,
+            maxOf(1, (orientedBitmap.width * ratio).toInt()),
+            maxOf(1, (orientedBitmap.height * ratio).toInt()), true)
         if (resized !== orientedBitmap) {
             orientedBitmap.recycle()
         }
@@ -328,12 +335,9 @@ class VisualFeatureExtractor(private val context: Context) {
         reqHeight: Int
     ): Int {
         var inSampleSize = 1
-        if (rawHeight > reqHeight || rawWidth > reqWidth) {
-            val halfHeight = rawHeight / 2
-            val halfWidth = rawWidth / 2
-            while ((halfHeight / inSampleSize) >= reqHeight && (halfWidth / inSampleSize) >= reqWidth) {
-                inSampleSize *= 2
-            }
+        while (rawWidth / inSampleSize > 1024 || rawHeight / inSampleSize > 1024 ||
+            (rawWidth.toLong() / inSampleSize) * (rawHeight.toLong() / inSampleSize) > 1_048_576L) {
+            inSampleSize *= 2
         }
         return inSampleSize
     }

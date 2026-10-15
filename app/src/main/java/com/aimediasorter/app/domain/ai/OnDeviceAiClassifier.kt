@@ -10,6 +10,7 @@ import com.aimediasorter.app.data.local.CategoryEntity
 import com.aimediasorter.app.data.model.AiEngineMode
 import com.aimediasorter.app.data.model.ClassificationScoreMetrics
 import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.label.ImageLabeler
 import com.google.mlkit.vision.label.ImageLabeling
 import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
 import kotlinx.coroutines.Dispatchers
@@ -19,11 +20,8 @@ import java.io.File
 import java.nio.FloatBuffer
 
 /**
- * Real On-Device AI Image Classifier powered by:
- * 1. ONNX Runtime Mobile (ai.onnxruntime) executing bundled assets/models/media_visual_embedder.onnx
- *    or an imported external MobileCLIP-S0 .onnx model on CPU with optional NNAPI acceleration.
- * 2. Bundled On-Device ML Kit Image Labeling (offline MobileNet visual classifier) in Hybrid mode.
- * 3. PrimarySubjectDisambiguator for central-ROI foreground subject priority and custom text embeddings.
+ * Automatic categorization uses bundled, on-device ML Kit inference.
+ * The handcrafted ONNX graph is diagnostic only and never auto-approved.
  */
 class OnDeviceAiClassifier(
     private val context: Context,
@@ -34,6 +32,7 @@ class OnDeviceAiClassifier(
         const val BUNDLED_VOCAB_ASSET_PATH = "models/text_token_embeddings.json"
     }
 
+    private var labeler: ImageLabeler? = null
     private var ortEnv: OrtEnvironment? = null
     private var ortSession: OrtSession? = null
     private var activeModelPathKey: String = ""
@@ -47,7 +46,8 @@ class OnDeviceAiClassifier(
             disambiguator = PrimarySubjectDisambiguator(vocabJson)
         }
 
-        val targetKey = customModelPath.ifBlank { BUNDLED_ONNX_ASSET_PATH }
+        require(customModelPath.isBlank()) { "Custom MobileCLIP import requires matching image/text encoders and is not supported." }
+        val targetKey = BUNDLED_ONNX_ASSET_PATH
         if (ortSession != null && activeModelPathKey == targetKey && activeHwAccel == enableHardwareAccel) {
             return
         }
@@ -62,13 +62,8 @@ class OnDeviceAiClassifier(
             }
         }
 
-        val modelBytes = if (customModelPath.isNotBlank() && File(customModelPath).exists()) {
-            File(customModelPath).readBytes()
-        } else {
-            context.assets.open(BUNDLED_ONNX_ASSET_PATH).use { it.readBytes() }
-        }
-
-        ortSession = env.createSession(modelBytes, sessionOptions)
+        val modelBytes = context.assets.open(BUNDLED_ONNX_ASSET_PATH).use { it.readBytes() }
+        ortSession = sessionOptions.use { env.createSession(modelBytes, it) }
         activeModelPathKey = targetKey
         activeHwAccel = enableHardwareAccel
     }
@@ -81,12 +76,15 @@ class OnDeviceAiClassifier(
         aiEngineMode: AiEngineMode,
         customOnnxPath: String,
         enableHardwareAccel: Boolean,
-        confidenceThreshold: Float
+        confidenceThreshold: Float,
+        isMirrored: Boolean = false
     ): ClassificationScoreMetrics = withContext(Dispatchers.Default) {
         val bitmap = featureExtractor.decodeAndNormalizeBitmap(
             uri = uri,
             filePath = filePath,
-            orientationDegrees = orientationDegrees
+            orientationDegrees = orientationDegrees,
+            targetSize = if (aiEngineMode == AiEngineMode.HYBRID_ONNX_AND_MLKIT) 512 else 224,
+            isMirrored = isMirrored
         ) ?: return@withContext ClassificationScoreMetrics(
             categoryId = "cat_other",
             categoryName = "Other",
@@ -121,6 +119,14 @@ class OnDeviceAiClassifier(
         enableHardwareAccel: Boolean,
         confidenceThreshold: Float
     ): ClassificationScoreMetrics = withContext(Dispatchers.Default) {
+        if (aiEngineMode == AiEngineMode.HYBRID_ONNX_AND_MLKIT) {
+            return@withContext LabelCategoryMapper.classify(
+                runMlKitOnDeviceLabeler(bitmap), enabledCategories, confidenceThreshold
+            )
+        }
+        require(aiEngineMode == AiEngineMode.ONNX_EMBEDDER_ONLY) {
+            "Custom MobileCLIP import is unavailable. Select the on-device ML Kit engine."
+        }
         ensureInitialized(
             customModelPath = if (aiEngineMode == AiEngineMode.CUSTOM_MOBILECLIP_ONNX) customOnnxPath else "",
             enableHardwareAccel = enableHardwareAccel
@@ -130,66 +136,60 @@ class OnDeviceAiClassifier(
         val env = ortEnv!!
         val session = ortSession!!
 
-        val inputName = session.inputNames.first()
-        var onnxProbs = FloatArray(9) { 1f / 9f }
-        var imageEmb32D = FloatArray(32)
-
-        // Inspect whether the loaded ONNX session expects [1, 64] feature input or [1, 3, 224, 224] raw image tensor
-        val inputTensor = if (aiEngineMode == AiEngineMode.CUSTOM_MOBILECLIP_ONNX && customOnnxPath.isNotBlank()) {
-            val nchwBuffer = featureExtractor.bitmapToNormalizedNchwBuffer(bitmap, 224)
-            OnnxTensor.createTensor(env, nchwBuffer, longArrayOf(1, 3, 224, 224))
-        } else {
-            OnnxTensor.createTensor(env, FloatBuffer.wrap(visualFeatures64D), longArrayOf(1, 64))
-        }
-
-        inputTensor.use { tensor ->
+        val inputName = session.inputNames.single()
+        val info = session.inputInfo[inputName]?.info as? ai.onnxruntime.TensorInfo
+            ?: error("ONNX input is not a tensor.")
+        require(info.shape.contentEquals(longArrayOf(1, 64))) { "Unexpected diagnostic ONNX input shape." }
+        val outputs = OnnxTensor.createTensor(env, FloatBuffer.wrap(visualFeatures64D), longArrayOf(1, 64)).use { tensor ->
             session.run(mapOf(inputName to tensor)).use { result ->
-                if (result.size() >= 1) {
-                    val out0 = (result[0].value as? Array<*>)?.firstOrNull() as? FloatArray
-                    if (out0 != null) {
-                        if (out0.size == 9) onnxProbs = out0
-                        else if (out0.size >= 32) imageEmb32D = out0.copyOfRange(0, 32)
-                    }
+                require(result.size() == 2) { "Diagnostic ONNX output schema mismatch." }
+                val probabilities = (result[0].value as? Array<*>)?.singleOrNull() as? FloatArray
+                    ?: error("ONNX probabilities unavailable.")
+                val embedding = (result[1].value as? Array<*>)?.singleOrNull() as? FloatArray
+                    ?: error("ONNX embedding unavailable.")
+                require(probabilities.size == 9 && embedding.size == 32 &&
+                    probabilities.all { it.isFinite() && it in 0f..1f } && embedding.all { it.isFinite() }) {
+                    "Invalid diagnostic ONNX outputs."
                 }
-                if (result.size() >= 2) {
-                    val out1 = (result[1].value as? Array<*>)?.firstOrNull() as? FloatArray
-                    if (out1 != null && out1.size >= 32) {
-                        imageEmb32D = out1.copyOfRange(0, 32)
-                    }
-                }
+                probabilities to embedding
             }
-        }
-
-        val mlKitLabels = if (aiEngineMode == AiEngineMode.HYBRID_ONNX_AND_MLKIT) {
-            runMlKitOnDeviceLabeler(bitmap)
-        } else {
-            emptyMap()
         }
 
         disambiguator!!.evaluateAndDisambiguate(
             enabledCategories = enabledCategories,
-            onnxCategoryProbs = onnxProbs,
-            imageEmbedding32D = imageEmb32D,
+            onnxCategoryProbs = outputs.first,
+            imageEmbedding32D = outputs.second,
             visualFeatures64D = visualFeatures64D,
-            mlKitLabels = mlKitLabels,
+            mlKitLabels = emptyMap(),
             confidenceThreshold = confidenceThreshold
-        )
+        ).copy(needsManualReview = true,
+            primarySubjectNote = "Diagnostic handcrafted ONNX projection; not trained semantic recognition. Manual review is mandatory.",
+            inferenceEngine = "ONNX_DIAGNOSTIC")
+    }
+
+    @Synchronized
+    private fun imageLabeler(): ImageLabeler {
+        return labeler ?: ImageLabeling.getClient(
+            ImageLabelerOptions.Builder().setConfidenceThreshold(0.0f).build()
+        ).also { labeler = it }
     }
 
     private suspend fun runMlKitOnDeviceLabeler(bitmap: Bitmap): Map<String, Float> {
-        return runCatching {
-            val options = ImageLabelerOptions.Builder()
-                .setConfidenceThreshold(0.35f)
-                .build()
-            val labeler = ImageLabeling.getClient(options)
-            val inputImage = InputImage.fromBitmap(bitmap, 0)
-            val labels = labeler.process(inputImage).await()
-            labels.associate { it.text to it.confidence }
-        }.getOrDefault(emptyMap())
+        val task = imageLabeler().process(InputImage.fromBitmap(bitmap, 0))
+        val labels = try { task.await() } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            // The SDK task may keep reading the bitmap after coroutine cancellation.
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { runCatching { task.await() } }
+            throw cancelled
+        }
+        return labels.associate { it.text to it.confidence }
     }
 
+    @Synchronized
     fun close() {
+        labeler?.close()
+        labeler = null
         runCatching { ortSession?.close() }
-        runCatching { ortEnv?.close() }
+        ortSession = null
+        ortEnv = null // OrtEnvironment is process-shared; do not close it while other clients may use it.
     }
 }

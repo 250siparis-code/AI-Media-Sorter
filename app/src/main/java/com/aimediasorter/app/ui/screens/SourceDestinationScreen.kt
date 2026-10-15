@@ -38,10 +38,18 @@ fun SourceDestinationScreen(
     onToggleExtension: (String) -> Unit,
     onContinue: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val metadataPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     val sourceLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
-        if (uri != null) onSelectSource(uri)
+        if (uri != null) {
+            onSelectSource(uri)
+            if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_MEDIA_LOCATION)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                metadataPermission.launch(android.Manifest.permission.ACCESS_MEDIA_LOCATION)
+            }
+        }
     }
 
     val destLauncher = rememberLauncherForActivityResult(
@@ -68,6 +76,9 @@ fun SourceDestinationScreen(
         )
 
         Spacer(modifier = Modifier.height(20.dp))
+
+        Text(stringResource(R.string.metadata_access_notice), style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.height(12.dp))
 
         // Source Directory Card
         FolderPickerCard(
@@ -104,7 +115,7 @@ fun SourceDestinationScreen(
             style = MaterialTheme.typography.titleMedium
         )
         Spacer(modifier = Modifier.height(8.dp))
-        Row(
+        FlowRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
