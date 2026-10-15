@@ -24,11 +24,8 @@ jobs:
 
       - name: Set up Android SDK (API 35)
         uses: android-actions/setup-android@v3
-
-      - name: Accept Android SDK Licenses & Install Platform 35
-        run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
 
       - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
