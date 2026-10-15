@@ -41,6 +41,12 @@ fun AIMediaSorterNavHost(viewModel: MainViewModel) {
     val loopError by viewModel.folderLoopError.collectAsStateWithLifecycle()
     val lastTermuxExport by viewModel.lastTermuxExportResult.collectAsStateWithLifecycle()
 
+    val cloudUi by viewModel.cloudUi.collectAsStateWithLifecycle()
+    val cloudConsent by viewModel.cloudConsent.collectAsStateWithLifecycle()
+    if (cloudConsent) CloudConsentDialog(settings.cloudOptions, cloudUi.hasKey,
+        onConfirm=viewModel::approveCloudBatch,
+        onDismiss={ viewModel.dismissCloudConsent(); navController.popBackStack() })
+
     val snackbar = remember { SnackbarHostState() }
     val statusText = exportMessage?.let { status ->
         when (status) {
@@ -206,6 +212,12 @@ fun AIMediaSorterNavHost(viewModel: MainViewModel) {
             composable(ScreenRoute.Settings.route) {
                 SettingsScreen(
                     settings = settings,
+                    cloudUi = cloudUi,
+                    onCloudOptions = viewModel::setCloudOptions,
+                    onSaveKey = viewModel::saveGeminiKey,
+                    onClearKey = viewModel::clearGeminiKey,
+                    onRefreshModels = viewModel::refreshGeminiModels,
+                    onRefreshCloudState = viewModel::refreshCloudLocalState,
                     sessions = sessions,
                     exportStatusMessage = exportMessage,
                     onLanguageChange = viewModel::setLanguage,

@@ -120,6 +120,7 @@ class TermuxOperationExporter(private val context: Context) {
                 requiresSafAccessOnly = source == null || destinationRoot == null,
                 destinationDirectory = destinationRoot?.let { it + "/" + subfolder } ?: rootUri,
                 destinationFileName = SafeRelativePath.fileName(item.fileName),
+                scoreInterpretationNote = if (item.inferenceEngine.startsWith("GEMINI") && item.inferenceEngine != "GEMINI_HYBRID_AGREEMENT") "Gemini numeric confidence unavailable; legacy zero is not a probability." else "Model score; not measured accuracy.",
                 detectedCategory = item.detectedCategoryName, effectiveCategory = item.effectiveCategoryName,
                 isManuallyCorrected = item.isManuallyCorrected,
                 classificationScoreUncalibrated = item.calibratedConfidence,

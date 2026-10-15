@@ -4,7 +4,7 @@
 
     <!-- Media access is limited to explicit SAF grants; inference stays local. -->
     <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
-    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <!-- Foreground Service for long-running background media analysis & safe transfer -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -13,6 +13,7 @@
 
     <application
         android:name=".AIMediaSorterApp"
+        android:usesCleartextTraffic="false"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"

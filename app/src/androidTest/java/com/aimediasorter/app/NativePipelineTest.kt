@@ -60,8 +60,9 @@ class NativePipelineTest {
         }
     }
 
-    @Test fun bundledMlKitActuallyExecutesWithoutInternetPermission() = runBlocking {
-        assertEquals(PackageManager.PERMISSION_DENIED,
+    @Test fun bundledMlKitActuallyExecutesWithDefaultOfflineMode() = runBlocking {
+        assertEquals(com.aimediasorter.app.domain.cloud.AnalysisMode.OFFLINE, com.aimediasorter.app.domain.cloud.CloudOptions().mode)
+        assertEquals(PackageManager.PERMISSION_GRANTED,
             context.packageManager.checkPermission(Manifest.permission.INTERNET, context.packageName))
         val classifier = OnDeviceAiClassifier(context, VisualFeatureExtractor(context))
         val image = bitmap()

@@ -16,7 +16,7 @@ def manifest(field):
     return subprocess.check_output([str(analyzer), "manifest", field, str(apk)], text=True).strip()
 permissions = manifest("permissions").splitlines()
 assert "com.aimediasorter.app.qa.documents" not in manifest("print"), "Test provider leaked into app APK"
-assert not any("android.permission.INTERNET" in p for p in permissions), permissions
+assert any("android.permission.INTERNET" in p for p in permissions), "Cloud-capable APK must declare Internet; upload consent is enforced in code."
 assert not any("MANAGE_EXTERNAL_STORAGE" in p for p in permissions), permissions
 assert manifest("min-sdk") == "34"
 assert manifest("target-sdk") == "35"

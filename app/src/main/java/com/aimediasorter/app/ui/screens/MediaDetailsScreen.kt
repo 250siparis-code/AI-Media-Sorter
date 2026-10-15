@@ -129,7 +129,7 @@ fun MediaDetailsScreen(
                 )
                 DetailRow(stringResource(R.string.details_detected_category), categoryDisplayName(item.effectiveCategoryId, item.effectiveCategoryName))
                 Text(
-                    text = if (item.inferenceEngine.startsWith("ML_KIT")) stringResource(
+                    text = if (com.aimediasorter.app.domain.cloud.CloudApproval.requiresIndividualReview(item.inferenceEngine)) stringResource(R.string.cloud_score_unavailable) else if (item.inferenceEngine.startsWith("ML_KIT") || item.inferenceEngine == "GEMINI_HYBRID_AGREEMENT") stringResource(
                         R.string.details_model_score, (item.calibratedConfidence * 100).toInt(), item.topMargin
                     ) else stringResource(R.string.details_confidence_metrics,
                         (item.calibratedConfidence * 100).toInt(), item.rawSimilarityScore, item.topMargin),
