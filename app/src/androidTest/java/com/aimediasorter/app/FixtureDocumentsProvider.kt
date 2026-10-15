@@ -14,6 +14,7 @@ import java.security.MessageDigest
 /** Fault-injecting provider for isolated instrumentation files only. */
 class FixtureDocumentsProvider : DocumentsProvider() {
     private val base get() = File(requireNotNull(context).filesDir, "qa-documents")
+    private var readyToken: String? = null
     private var revoke = false
     private var corrupt = false
     private var timestampUnsupported = false
@@ -45,6 +46,7 @@ class FixtureDocumentsProvider : DocumentsProvider() {
                 revoke = false
                 corrupt = false
                 timestampUnsupported = false
+                readyToken = extras?.getString("token")
                 return Bundle()
             }
             "qa.fault" -> {
@@ -54,6 +56,7 @@ class FixtureDocumentsProvider : DocumentsProvider() {
                 return Bundle()
             }
             "qa.state" -> return Bundle().apply {
+                putString("token", readyToken)
                 val source = File(base, "source/photo.jpg")
                 putBoolean("sourceExists", source.exists())
                 if (source.exists()) putString("sourceHash",

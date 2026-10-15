@@ -19,22 +19,27 @@ class SafTransferTest {
     private val target get() = instrumentation.targetContext
     private val control get() = instrumentation.context
     private val authority = "com.aimediasorter.app.qa.documents"
-    private val controlUri get() = Uri.parse("content://" + authority)
+    private val controlUri get() = Uri.parse("content://" + authority + "/control")
     private val sourceTree get() = DocumentsContract.buildTreeDocumentUri(authority, "source")
     private val destinationTree get() = DocumentsContract.buildTreeDocumentUri(authority, "destination")
     private val sourceUri get() = DocumentsContract.buildDocumentUriUsingTree(sourceTree, "source/photo.jpg")
     private fun setup() {
-        control.contentResolver.call(controlUri, "qa.reset", null, null)
-        listOf(sourceTree, destinationTree).forEach {
-            control.grantUriPermission(target.packageName, it, Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
+        val token = java.util.UUID.randomUUID().toString()
+        control.startActivity(Intent().setClassName(control.packageName,
+            FixtureGrantActivity::class.java.name).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .putExtra("qa.token", token))
+        val deadline = android.os.SystemClock.elapsedRealtime() + 10000
+        while (android.os.SystemClock.elapsedRealtime() < deadline) {
+            val ready = runCatching {
+                target.contentResolver.call(controlUri, "qa.state", null, null)?.getString("token") == token
+            }.getOrDefault(false)
+            if (ready) return
+            Thread.sleep(50)
         }
+        error("Test-only document provider did not grant its isolated fixture URIs.")
     }
     private fun cleanup() {
-        listOf(sourceTree, destinationTree).forEach {
-            control.revokeUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-        }
-        control.contentResolver.call(controlUri, "qa.cleanup", null, null)
+        target.contentResolver.call(controlUri, "qa.cleanup", null, null)
     }
     private fun hash() = control.contentResolver.call(controlUri, "qa.state", null, null)!!.getString("sourceHash")!!
     private fun sourceExists() = control.contentResolver.call(controlUri, "qa.state", null, null)!!.getBoolean("sourceExists")
