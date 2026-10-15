@@ -39,7 +39,7 @@ class StorageScanner(private val context: Context) {
 
     fun normalizeUriOrPath(raw: String): String {
         val decoded = runCatching { URLDecoder.decode(raw, "UTF-8") }.getOrDefault(raw)
-        return decoded.trimEnd('/', '\')
+        return decoded.trimEnd('/', '\\')
     }
 
     suspend fun scanDirectory(
