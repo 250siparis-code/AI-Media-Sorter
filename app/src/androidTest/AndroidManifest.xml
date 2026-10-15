@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <queries><package android:name="com.aimediasorter.app.debug" /></queries>
     <application>
         <activity android:name="com.aimediasorter.app.FixtureGrantActivity"
             android:exported="true" android:theme="@android:style/Theme.NoDisplay" />

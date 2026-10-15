@@ -180,7 +180,18 @@ class MediaRepository(private val context: Context) {
                     val fingerprint = digest(candidate.uri.toString() + ";" + sourceChecksum + ";" + configuration)
                     if (sourceChecksum != null && existing != null &&
                         existing.sourceRootUri == settings.sourceUri && existing.quickFingerprint == fingerprint) {
-                        db.mediaItemDao().updateMediaItem(existing.copy(scanSessionId = session.sessionId))
+                        val currentModified = timestampManager.resolveFilesystemLastModified(candidate.uri,
+                            candidate.filePath, candidate.lastModifiedMs)
+                        val timestampChanged = currentModified != existing.originalLastModifiedMs
+                        db.mediaItemDao().updateMediaItem(existing.copy(scanSessionId = session.sessionId,
+                            originalLastModifiedMs = currentModified,
+                            transferStatus = if (timestampChanged && existing.transferStatus == TransferItemStatus.COMPLETED_VERIFIED.name)
+                                TransferItemStatus.COMPLETED_TIMESTAMP_WARNING.name else existing.transferStatus,
+                            timestampVerified = if (timestampChanged && existing.timestampVerified != null) false
+                                else existing.timestampVerified,
+                            timestampStatusNote = if (timestampChanged && existing.destinationUriString != null)
+                                "Source filesystem mtime changed; the prior transfer timestamp result refers to the earlier snapshot."
+                                else existing.timestampStatusNote))
                         if (existing.needsManualReview) uncertain++
                         skipped++
                     } else {

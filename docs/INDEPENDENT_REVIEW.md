@@ -93,6 +93,20 @@ Remaining release validation:
 5. Model/asset provenance, dependency terms and release-signing/distribution policy.
 6. Custom open-vocabulary models are not implemented; no accuracy or model capability is fabricated.
 
+## Recommended Fixes and Final Assessment
+
+The proposed branch addresses the recorded defects through these production entry points:
+
+- SafeFileMover.transferMediaItem and VerifiedTransferEngine.transfer now verify new destinations before any source deletion, retain originals when checks fail, and record actual COPY/MOVE outcomes.
+- OriginalMediaAccess.originalUri/input and ExifAndTimestampManager.restoreAndVerifyTimestamp request unchanged original streams and verify filesystem mtime independently.
+- MediaRepository.executeVerifiedTransfers checks source scope, confirmed settings, active categories and live deletion guards. reconcileLocked examines every new unfinished operation, rechecks destination bytes and mtime, and never resumes source deletion.
+- OnDeviceAiClassifier.classifyBitmap, LabelCategoryMapper.classify and VideoFrameAnalyzer.analyzeVideo execute real local inference with conservative review rules.
+- TermuxScriptBuilder.build and the production manifest executor publish verified files without interpreting media names as shell code.
+
+Working behavior is defined by the executed tests below. Semantic accuracy, physical-device performance and general OEM-provider acceptance remain unverified. Custom descriptions and recovery are partial capabilities: descriptions match SDK labels rather than learned text embeddings, and recovery flags interrupted operations for review rather than resuming byte-offset transfers.
+
+Before testing with a real archive, verify the phone/provider using copied representative samples and retain a separate backup. Begin with the default COPY operation and inspect modification-time reports. MOVE is not approved for a provider that cannot establish the required identity, publication durability and timestamp policy.
+
 ## Final Verification Record
 
 Pending final CI result for the proposed branch. This section will be updated with exact commit/run identifiers and executed test results before handing over the pull request.
