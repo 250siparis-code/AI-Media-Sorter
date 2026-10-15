@@ -89,7 +89,7 @@ jobs:
         with:
           api-level: ${{ matrix.api }}
           arch: x86_64
-          target: default
+          target: ${{ matrix.target }}
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.expectedPageSize=${{ matrix.page_size }} --stacktrace
