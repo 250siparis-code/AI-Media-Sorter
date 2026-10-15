@@ -44,7 +44,7 @@ fun FileTransferScreen(
     val groupedByFolder = remember(mediaItems) {
         mediaItems
             .filter { !it.isExcludedFromTransfer }
-            .groupBy { it.effectiveCategoryName }
+            .groupBy { it.proposedRelativePath.substringBeforeLast('/', it.effectiveCategoryName) }
     }
 
     Column(
