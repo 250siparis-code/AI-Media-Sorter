@@ -34,7 +34,7 @@ class CachedMetadataTest {
         val settings = AppSettings(sourceUri = folder.path, destinationUri = "", includeSubfolders = false)
         try {
             repository.executeMediaScanAndAnalysis(settings)
-            val first = requireNotNull(database.mediaItemDao().getByUri(Uri.fromFile(file).toString()))
+            val first = database.mediaItemDao().getCurrentMediaItems(folder.path).single()
             assertEquals(before, first.originalLastModifiedMs)
             // Simulate a prior verified COPY result; cached timestamp claims must become stale after touch.
             database.mediaItemDao().updateMediaItem(first.copy(
@@ -42,7 +42,7 @@ class CachedMetadataTest {
                 timestampVerified = true, destinationUriString = Uri.fromFile(file).toString()))
             check(file.setLastModified(after))
             repository.executeMediaScanAndAnalysis(settings)
-            val second = requireNotNull(database.mediaItemDao().getByUri(Uri.fromFile(file).toString()))
+            val second = database.mediaItemDao().getCurrentMediaItems(folder.path).single()
             assertEquals(first.sha256Checksum, second.sha256Checksum)
             assertEquals(first.detectedCategoryId, second.detectedCategoryId)
             assertEquals(1, repository.analysisProgress.value.skippedUnchangedCount)
