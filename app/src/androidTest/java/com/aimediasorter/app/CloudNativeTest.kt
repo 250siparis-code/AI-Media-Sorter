@@ -100,7 +100,9 @@ class CloudNativeTest {
     @Test fun officialLauncherIconIsAdaptiveAndRoundResourceResolves() {
         val info=context.packageManager.getApplicationInfo(context.packageName,0)
         assertTrue(context.getDrawable(info.icon) is AdaptiveIconDrawable)
-        assertNotNull(context.getDrawable(R.mipmap.ic_launcher_round))
+        val round=context.resources.getIdentifier("ic_launcher_round","mipmap",context.packageName)
+        assertTrue("Round launcher resource must survive shrinking.",round!=0)
+        assertNotNull(context.getDrawable(round))
     }
     /** NEVER enabled by CI. The operator must configure BYOK/model in app settings first.
      * Uses a synthetic JPEG only. This verifies live protocol, not semantic accuracy.
