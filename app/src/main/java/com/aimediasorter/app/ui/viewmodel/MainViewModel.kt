@@ -164,6 +164,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         launchSafely {
             repo.ensureDefaultCategories()
             repo.reconcileInterruptedTransfers()
+            refreshCloudLocalState()
         }
     }
 
