@@ -40,7 +40,6 @@ data class LiveTransferProgress(
 class MediaRepository(private val context: Context) {
     private val db = AppDatabase.getInstance(context)
     private val operationMutex = Mutex()
-    private var recoveryComplete = false
     val settingsRepository = SettingsRepository(context)
     val timestampManager = ExifAndTimestampManager(context)
     val storageScanner = StorageScanner(context)
@@ -111,26 +110,34 @@ class MediaRepository(private val context: Context) {
 
     /** Recovery never deletes a source or resumes a pending deletion automatically. */
     private suspend fun reconcileLocked() {
-        if (recoveryComplete) return
         for (journal in db.transferJournalDao().unfinished()) {
             val item = db.mediaItemDao().getMediaItemById(journal.itemId)
             val verified = journal.destinationUri != null && journal.checksum != null &&
                 runCatching { checksum(journal.destinationUri) == journal.checksum }.getOrDefault(false)
-            val note = if (verified) "Interrupted operation: destination SHA-256 verified. Inspect source; no recovery deletion attempted."
+            val currentModifiedMs = journal.destinationUri?.let {
+                timestampManager.resolveFilesystemLastModified(Uri.parse(it),
+                    storageScanner.resolveLocalFile(it)?.path, 0)
+            } ?: 0L
+            val timestampNowVerified = verified && journal.timestampPreserved &&
+                journal.originalModifiedMs > 0 && currentModifiedMs > 0 &&
+                kotlin.math.abs(currentModifiedMs - journal.originalModifiedMs) <=
+                    ExifAndTimestampManager.TIMESTAMP_TOLERANCE_MS
+            val note = if (verified) "Interrupted operation: destination SHA-256 verified. Filesystem mtime currently verified: " +
+                timestampNowVerified + ". Inspect source; no recovery deletion attempted."
                 else "Interrupted operation requires inspection. Source deletion was not resumed."
             db.withTransaction {
                 if (item != null) db.mediaItemDao().updateMediaItem(item.copy(
                     transferStatus = TransferItemStatus.RECOVERY_REQUIRED.name,
                     destinationUriString = journal.destinationUri,
                     sha256Checksum = journal.checksum ?: item.sha256Checksum,
-                    needsManualReview = true, timestampVerified = if (verified) journal.timestampPreserved else false,
+                    needsManualReview = true, timestampVerified = timestampNowVerified,
                     timestampStatusNote = note
                 ))
                 db.transferJournalDao().upsert(journal.copy(phase = "RECOVERED", details = note,
+                    destinationModifiedMs = currentModifiedMs, timestampPreserved = timestampNowVerified,
                     updatedAtMs = System.currentTimeMillis()))
             }
         }
-        recoveryComplete = true
     }
 
     suspend fun executeMediaScanAndAnalysis(settings: AppSettings) = withContext(Dispatchers.IO) {
