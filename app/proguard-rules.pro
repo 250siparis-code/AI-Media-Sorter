@@ -11,3 +11,7 @@
 -keep public class * extends androidx.work.ListenableWorker {
     public <init>(android.content.Context, androidx.work.WorkerParameters);
 }
+
+# AndroidJUnitRunner uses this app-provided API across the instrumentation APK boundary.
+# Keep its runtime name/methods when testing the minified release.
+-keep class androidx.tracing.Trace { *; }

@@ -44,6 +44,8 @@ jobs:
         run: python3 -m unittest discover -s tests -v
       - name: Clean build, unit tests, lint and instrumentation compilation
         run: ./gradlew clean testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --stacktrace
+      - name: Summarize executed JVM tests
+        run: python3 scripts/summarize_junit.py app/build/test-results/testDebugUnitTest app/build/reports/jvm-summary.json
       - name: Inspect generated APK
         run: python3 scripts/inspect_apk.py app/build/outputs/apk/debug/app-debug.apk
       - name: Measure current debug APK
@@ -72,6 +74,16 @@ jobs:
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
+          name: AIMediaSorter-arm64-v8a-release-QA
+          path: optimized-apks/optimized-arm64-v8a-release-QA.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AIMediaSorter-armeabi-v7a-release-QA
+          path: optimized-apks/optimized-armeabi-v7a-release-QA.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
           name: AIMediaSorter-debug-apk
           path: optimized-apks/*-debug.apk
           if-no-files-found: error
@@ -81,6 +93,8 @@ jobs:
           name: verification-reports
           path: |
             app/build/reports/tests/
+            app/build/test-results/testDebugUnitTest/TEST-*.xml
+            app/build/reports/*-summary.json
             app/build/reports/lint-results-debug.*
             app/build/reports/*-inspection.json
             app/build/reports/*-size.json
@@ -156,5 +170,6 @@ jobs:
           name: native-test-reports-api-${{ matrix.label }}
           path: |
             app/build/reports/androidTests/
+            app/build/reports/native-summary.json
             app/build/outputs/androidTest-results/
             android-test-logcat.txt

@@ -7,3 +7,5 @@ if [ "$variant" = "release" ]; then
 else
   ./gradlew connectedDebugAndroidTest -PtargetAbi=x86_64 -Pandroid.testInstrumentationRunnerArguments.expectedPageSize="$page_size" --stacktrace
 fi
+
+python3 scripts/summarize_junit.py app/build/outputs/androidTest-results app/build/reports/native-summary.json
