@@ -95,7 +95,7 @@ jobs:
           script: ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.expectedPageSize=${{ matrix.page_size }} --stacktrace
       - name: Capture test logcat
         if: always()
-        run: adb logcat -d > android-test-logcat.txt
+        run: timeout 20s adb logcat -d > android-test-logcat.txt || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:

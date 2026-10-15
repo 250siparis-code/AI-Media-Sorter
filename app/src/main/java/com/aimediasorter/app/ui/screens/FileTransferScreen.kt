@@ -169,7 +169,8 @@ fun FileTransferScreen(
             }
         }
         if (transferProgress.statusMessage.isNotBlank()) {
-            Text(stringResource(R.string.transfer_status_notice), style = MaterialTheme.typography.labelMedium)
+            Text(stringResource(R.string.transfer_status_notice) + "\n" + transferProgress.statusMessage,
+                style = MaterialTheme.typography.labelMedium)
         }
         if (transferProgress.processedCount > 0) {
             Text(stringResource(R.string.transfer_retained_fmt, transferProgress.sourceRetainedCount, transferProgress.skippedCount),
