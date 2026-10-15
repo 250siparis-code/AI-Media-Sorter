@@ -38,6 +38,12 @@ jobs:
       - name: Assemble Debug APK
         run: gradle assembleDebug --stacktrace
 
+      - name: Verify Android 15 minimum SDK
+        run: |
+          actual_min_sdk="$("$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest min-sdk app/build/outputs/apk/debug/app-debug.apk)"
+          echo "APK minimum SDK: $actual_min_sdk"
+          test "$actual_min_sdk" = "35"
+
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
         with:

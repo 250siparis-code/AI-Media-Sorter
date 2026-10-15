@@ -1,5 +1,7 @@
 # AI Media Sorter — Native Android Application (`com.aimediasorter.app`)
 
+Requires **Android 15 (API 35) or later**.
+
 Native Android application built with **Kotlin**, **Jetpack Compose**, **Material 3 (Pure Black AMOLED `#000000` / `#8B45FF`)**, **Room**, **WorkManager**, **ONNX Runtime Mobile**, **ML Kit Image Labeling**, and a standalone **Termux-Compatible File Operation Export** engine.
 
 ---
