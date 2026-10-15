@@ -22,7 +22,9 @@ with zipfile.ZipFile(apk) as z:
             abis[abi]["raw_bytes"]+=e.file_size;abis[abi]["compressed_bytes"]+=e.compress_size;abis[abi]["entries"]+=1
             row["component"]="ONNX Runtime" if "onnx" in name.lower() else "ML Kit/other JNI"
             native.append(row)
-        if kind=="assets": assets.append(row)
+        if kind=="assets":
+            row["sha256"]=hashlib.sha256(z.read(name)).hexdigest()
+            assets.append(row)
 report={"apk":apk.name,"bytes":apk.stat().st_size,"MiB":apk.stat().st_size/1048576,
         "sha256":hashlib.sha256(apk.read_bytes()).hexdigest(),"groups":dict(groups),"abis":dict(abis),
         "native":native,"assets":assets,"largest_entries":sorted(entries,key=lambda e:e["raw_bytes"],reverse=True)[:40],
