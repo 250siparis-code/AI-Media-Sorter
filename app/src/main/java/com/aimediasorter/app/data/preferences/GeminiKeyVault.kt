@@ -36,6 +36,10 @@ class GeminiKeyVault(context: Context, namespace: String = "user") {
         cipher.init(Cipher.DECRYPT_MODE,key(),GCMParameterSpec(128,bytes.copyOfRange(1,n+1)))
         return cipher.doFinal(bytes.copyOfRange(n+1,bytes.size)).toString(Charsets.UTF_8)
     }
+    class Snapshot(val secret: String, val revision: Int) {
+        override fun toString() = "GeminiCredential(redacted)"
+    }
+    @Synchronized fun snapshot() = Snapshot(read(),revision)
     @Synchronized fun save(value: String) {
         require(Regex("[A-Za-z0-9_-]{20,256}").matches(value))
         if(runCatching { read()==value }.getOrDefault(false)) return

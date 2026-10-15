@@ -24,8 +24,10 @@ class CloudAnalysisService(context: Context,extractor: VisualFeatureExtractor,
         return state.authorize(signature,vault.revision,options)
     }
     suspend fun refreshModels(): List<String> {
-        val key=try { vault.read() } catch (_: Exception) { throw CloudFailure(CloudErrorKind.AUTH) }
-        val models=client.models(key);state.replaceModels(vault.revision,models);return models
+        val credential=try { vault.snapshot() } catch (_: Exception) { throw CloudFailure(CloudErrorKind.AUTH) }
+        val models=client.models(credential.secret)
+        if(vault.revision!=credential.revision) throw CloudFailure(CloudErrorKind.CONSENT)
+        state.replaceModels(credential.revision,models);return models
     }
     suspend fun analyze(settings: AppSettings,batch: String,signature: String,originalHash: String?,
         categories: List<CategoryEntity>,uri: Uri,path: String?,isVideo: Boolean,orientation: Int,mirrored: Boolean,
@@ -44,10 +46,11 @@ class CloudAnalysisService(context: Context,extractor: VisualFeatureExtractor,
                 state.begin(batch,cacheKey)
                 val images=encoder.images(uri,path,isVideo,orientation,mirrored)
                 sampledTimes=images.mapNotNull { it.timestampMs }.joinToString(",")
-                val key=try { vault.read() } catch (_: Exception) { throw CloudFailure(CloudErrorKind.AUTH) }
-                val revision=vault.revision
-                val response=client.classify(key,o,categories,images) {
-                    liveCheck();state.reserve(batch,signature,revision)
+                val credential=try { vault.snapshot() } catch (_: Exception) { throw CloudFailure(CloudErrorKind.AUTH) }
+                val response=client.classify(credential.secret,o,categories,images) {
+                    liveCheck()
+                    if(vault.revision!=credential.revision) throw CloudFailure(CloudErrorKind.CONSENT)
+                    state.reserve(batch,signature,credential.revision)
                 }
                 state.complete(batch,cacheKey,response);decision=response.decision
             }

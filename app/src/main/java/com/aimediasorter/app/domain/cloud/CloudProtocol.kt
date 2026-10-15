@@ -109,10 +109,15 @@ object CloudProtocol {
                 .mapNotNull { it.jsonObject["text"]?.jsonPrimitive?.content }.joinToString("")
             val obj = json.parseToJsonElement(text).jsonObject
             require(obj.keys == setOf("category","short_description","alternative_categories","review_status"))
-            val category = obj["category"]!!.jsonPrimitive.content
-            val desc = obj["short_description"]!!.jsonPrimitive.content
-            val alternatives = obj["alternative_categories"]!!.jsonArray.map { it.jsonPrimitive.content }
-            val status = obj["review_status"]!!.jsonPrimitive.content
+            fun string(value: JsonElement?): String {
+                val primitive=value!!.jsonPrimitive
+                require(primitive.isString)
+                return primitive.content
+            }
+            val category = string(obj["category"])
+            val desc = string(obj["short_description"])
+            val alternatives = obj["alternative_categories"]!!.jsonArray.map { string(it) }
+            val status = string(obj["review_status"])
             require(category in allowed || category == "__review__")
             require(desc.length in 1..240 && desc.none { it.isISOControl() })
             require(alternatives.size <= 3 && alternatives.distinct().size == alternatives.size)

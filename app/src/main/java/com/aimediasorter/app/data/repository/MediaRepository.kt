@@ -87,7 +87,8 @@ class MediaRepository(private val context: Context) {
         .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
     private fun signature(settings: AppSettings, categories: List<CategoryEntity>): String =
         digest("mlkit-image-labeling:17.0.9;diagnostic-onnx-v1;ort:1.22.0;" + settings.hardwareAcceleration + ";" + settings.aiEngineMode.name + ";" +
-            settings.confidenceThreshold + ";" + json.encodeToString(categories.sortedBy { it.id }) + ";" + json.encodeToString(settings.cloudOptions))
+            settings.confidenceThreshold + ";" + json.encodeToString(categories.sortedBy { it.id }) + ";" + json.encodeToString(settings.cloudOptions) + ";" + CloudProtocol.VERSION + ";" +
+            (if(settings.cloudOptions.mode == AnalysisMode.OFFLINE) 0 else cloud.vault.revision))
 
     private suspend fun checksum(uri: String, filePath: String? = null): String {
         val file = filePath?.let { File(it) } ?: storageScanner.resolveLocalFile(uri)

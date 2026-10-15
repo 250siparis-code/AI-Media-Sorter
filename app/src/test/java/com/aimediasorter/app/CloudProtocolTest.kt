@@ -48,6 +48,9 @@ class CloudProtocolTest {
     @Test fun addedConfidenceFieldIsRejected() {
         failure(CloudErrorKind.RESPONSE) { CloudProtocol.parseResponse(response(decision.dropLast(1)+""","confidence":0.99}"""),setOf("food")) }
     }
+    @Test fun nonStringDescriptionsAreRejected() {
+        failure(CloudErrorKind.RESPONSE) { CloudProtocol.parseResponse(response(decision.replace("\"A meal\"","8")),setOf("food")) }
+    }
     @Test fun duplicateOrUnconfiguredAlternativesAreRejected() {
         for(alts in listOf("[\"food\"]","[\"people\",\"people\"]","[\"unknown\"]")) {
             failure(CloudErrorKind.RESPONSE) { CloudProtocol.parseResponse(response(decision.replace("[]",alts)),setOf("food","people")) }
