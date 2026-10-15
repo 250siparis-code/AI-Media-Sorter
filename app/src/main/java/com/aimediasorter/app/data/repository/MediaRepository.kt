@@ -88,7 +88,7 @@ class MediaRepository(private val context: Context) {
     private suspend fun checksum(uri: String, filePath: String? = null): String {
         val file = filePath?.let { File(it) } ?: storageScanner.resolveLocalFile(uri)
         val input = if (file != null) file.inputStream()
-            else context.contentResolver.openInputStream(Uri.parse(uri)) ?: error("Read permission revoked.")
+            else OriginalMediaAccess(context).input(Uri.parse(uri))
         return input.use {
             val hash = MessageDigest.getInstance("SHA-256")
             val buffer = ByteArray(65536)
@@ -176,7 +176,6 @@ class MediaRepository(private val context: Context) {
                         val metadata = timestampManager.inspectMediaMetadata(candidate.uri, candidate.filePath,
                             candidate.isVideo, candidate.lastModifiedMs)
                         var metrics = try {
-                            if (sourceChecksum == null) error("Cannot read source content.")
                             if (candidate.isVideo) videoAnalyzer.analyzeVideo(candidate.uri, candidate.filePath,
                                 metadata.durationMs, enabled, settings.aiEngineMode, "",
                                 settings.hardwareAcceleration, settings.confidenceThreshold)
@@ -188,6 +187,10 @@ class MediaRepository(private val context: Context) {
                             failed++
                             ClassificationScoreMetrics("cat_other", "Other", 0f, 0f, 0f,
                                 needsManualReview = true, primarySubjectNote = "Decoding/inference failed: " + error.message)
+                        }
+                        if (sourceChecksum == null) {
+                            metrics = metrics.copy(needsManualReview = true,
+                                primarySubjectNote = "Original-byte access unavailable; transfer is blocked. " + metrics.primarySubjectNote)
                         }
                         if (sourceChecksum != null) {
                             val unchanged = runCatching { checksum(candidate.uri.toString(), candidate.filePath) == sourceChecksum }

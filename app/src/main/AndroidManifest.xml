@@ -3,6 +3,7 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Media access is limited to explicit SAF grants; inference stays local. -->
+    <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
     <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
 
     <!-- Foreground Service for long-running background media analysis & safe transfer -->
@@ -21,6 +22,9 @@
         android:roundIcon="@drawable/ic_launcher_foreground"
         android:supportsRtl="true"
         android:theme="@style/Theme.AIMediaSorter">
+
+        <property android:name="android.media.PROPERTY_MEDIA_CAPABILITIES"
+            android:resource="@xml/media_capabilities" />
 
         <activity
             android:name=".MainActivity"

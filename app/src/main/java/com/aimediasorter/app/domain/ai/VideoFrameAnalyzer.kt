@@ -54,7 +54,7 @@ class VideoFrameAnalyzer(
         val retriever = MediaMetadataRetriever()
         val frameSamples = mutableListOf<FrameClassificationSample>()
         val categoryResults = mutableListOf<ClassificationScoreMetrics>()
-        val distinctFrames = hashSetOf<Int>()
+        val distinctFrames = hashSetOf<String>()
 
         try {
             if (!filePath.isNullOrBlank() && File(filePath).exists()) {
@@ -90,7 +90,10 @@ class VideoFrameAnalyzer(
                     try {
                         val pixels = IntArray(frameBitmap.width * frameBitmap.height)
                         frameBitmap.getPixels(pixels, 0, frameBitmap.width, 0, 0, frameBitmap.width, frameBitmap.height)
-                        if (!distinctFrames.add(pixels.contentHashCode())) continue
+                        val packed = java.nio.ByteBuffer.allocate(pixels.size * 4).apply { asIntBuffer().put(pixels) }
+                        val fingerprint = java.security.MessageDigest.getInstance("SHA-256").digest(packed.array())
+                            .joinToString("") { "%02x".format(it) }
+                        if (!distinctFrames.add(fingerprint)) continue
                         val frameMetric = classifier.classifyBitmap(
                             bitmap = frameBitmap,
                             enabledCategories = enabledCategories,

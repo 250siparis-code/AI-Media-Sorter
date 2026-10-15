@@ -66,10 +66,10 @@ class ExifAndTimestampManager(private val context: Context) {
         // Provider-reported dates are not interchangeable with filesystem mtime.
         if (uri.authority != "com.android.externalstorage.documents") return 0L
         return runCatching {
-            context.contentResolver.openFileDescriptor(uri, "r")?.use {
-                val stat = Os.fstat(it.fileDescriptor)
+            OriginalMediaAccess(context).asset(uri).use {
+                val stat = Os.fstat(it.parcelFileDescriptor.fileDescriptor)
                 if (OsConstants.S_ISREG(stat.st_mode)) {
-                    File("/proc/self/fd/" + it.fd).lastModified().takeIf { value -> value > 0 } ?: stat.st_mtime * 1000L
+                    File("/proc/self/fd/" + it.parcelFileDescriptor.fd).lastModified().takeIf { value -> value > 0 } ?: stat.st_mtime * 1000L
                 } else 0L
             } ?: 0L
         }.getOrDefault(0L)
@@ -90,7 +90,7 @@ class ExifAndTimestampManager(private val context: Context) {
             val exif = if (!filePath.isNullOrBlank() && File(filePath).exists()) {
                 ExifInterface(filePath)
             } else {
-                context.contentResolver.openInputStream(uri)?.use { stream ->
+                OriginalMediaAccess(context).input(uri).use { stream ->
                     ExifInterface(stream)
                 }
             }

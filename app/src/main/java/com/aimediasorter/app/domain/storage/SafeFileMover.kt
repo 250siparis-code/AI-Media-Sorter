@@ -121,8 +121,8 @@ class SafeFileMover(
         override val id: String get() = document.uri.toString()
         override val name: String get() = document.name ?: error("Document has no filename.")
         override fun identityKey(): String? = runCatching {
-            context.contentResolver.openFileDescriptor(document.uri, "r")?.use {
-                val stat = Os.fstat(it.fileDescriptor)
+            OriginalMediaAccess(context).asset(document.uri).use {
+                val stat = Os.fstat(it.parcelFileDescriptor.fileDescriptor)
                 if (OsConstants.S_ISREG(stat.st_mode)) stat.st_dev.toString() + ":" + stat.st_ino else null
             }
         }.getOrNull()
@@ -130,8 +130,7 @@ class SafeFileMover(
         override fun size(): Long = document.length()
         override fun modifiedMs(): Long = timestampManager.resolveFilesystemLastModified(document.uri,
             document.uri.path?.takeIf { document.uri.scheme == "file" }, 0)
-        override fun input(): InputStream = context.contentResolver.openInputStream(document.uri)
-            ?: error("Source read permission revoked.")
+        override fun input(): InputStream = OriginalMediaAccess(context).input(document.uri)
         override fun output(): OutputStream = context.contentResolver.openOutputStream(document.uri, "wt")
             ?: error("Destination write permission revoked.")
         override fun sync(output: OutputStream) {

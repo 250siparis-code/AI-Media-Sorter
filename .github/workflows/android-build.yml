@@ -24,10 +24,14 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Generate isolated decoder fixture
+        run: python3 scripts/generate_test_media.py
       - name: Verify standalone transfer executor
         run: python3 -m unittest discover -s tests -v
-      - name: Clean build, unit tests and lint
-        run: ./gradlew clean testDebugUnitTest lintDebug assembleDebug --stacktrace
+      - name: Clean build, unit tests, lint and instrumentation compilation
+        run: ./gradlew clean testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --stacktrace
+      - name: Inspect generated APK
+        run: python3 scripts/inspect_apk.py app/build/outputs/apk/debug/app-debug.apk
       - uses: actions/upload-artifact@v4
         with:
           name: AIMediaSorter-debug-apk
@@ -40,3 +44,47 @@ jobs:
           path: |
             app/build/reports/tests/
             app/build/reports/lint-results-debug.*
+            app/build/reports/apk-inspection.json
+  android-device-tests:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [29, 35]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Generate isolated decoder fixture
+        run: python3 scripts/generate_test_media.py
+      - name: Enable runner KVM access
+        run: sudo chmod 666 /dev/kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: default
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: ./gradlew connectedDebugAndroidTest --stacktrace
+      - name: Capture test logcat
+        if: always()
+        run: adb logcat -d > android-test-logcat.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-test-reports-api-${{ matrix.api }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            android-test-logcat.txt

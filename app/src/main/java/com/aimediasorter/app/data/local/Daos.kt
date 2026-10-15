@@ -60,7 +60,7 @@ interface MediaItemDao {
     @Query(
         "UPDATE media_items SET effectiveCategoryId = :categoryId, " +
         "effectiveCategoryName = :categoryName, isManuallyCorrected = 1, " +
-        "needsManualReview = 0, transferStatus = 'PENDING', proposedRelativePath = :proposedPath WHERE id = :itemId"
+        "needsManualReview = CASE WHEN sha256Checksum IS NULL THEN 1 ELSE 0 END, transferStatus = 'PENDING', proposedRelativePath = :proposedPath WHERE id = :itemId"
     )
     suspend fun updateManualCategory(
         itemId: Long,
