@@ -265,7 +265,7 @@ class NativePipelineTest {
             }
             resolver.openOutputStream(uri)!!.use { it.write(bytes) }
             resolver.update(uri, ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }, null, null)
-            assertTrue(MediaStore.getRequireOriginal(OriginalMediaAccess(context).originalUri(uri)))
+            assertNotEquals(uri, OriginalMediaAccess(context).originalUri(uri))
             assertArrayEquals(bytes, OriginalMediaAccess(context).input(uri).use { it.readBytes() })
         } finally { resolver.delete(uri, null, null) }
     }

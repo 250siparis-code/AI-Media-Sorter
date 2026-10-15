@@ -48,6 +48,12 @@ Filesystem mtime is obtained from an actual local file or regular-file descripto
 
 Safety depends on a conforming provider and storage behaving according to its reported identity/durability contract. No application can make an arbitrary third-party provider or sudden hardware failure fully transactional. Destructive acceptance on a physical device and its actual provider remains a separate release gate.
 
+## Privacy and Security
+
+The reviewed application source contains no media-upload endpoint, embedded paid-API secret or advertising tracker. The inspected merged debug APK has no INTERNET or MANAGE_EXTERNAL_STORAGE permission; normal WorkManager permissions include boot handling, wake locks and network-state observation. Media access uses explicitly selected SAF grants, with metadata access requested only for original-byte preservation. Backups are disabled and exports remain in private cache until the user saves them.
+
+Google's ML Kit terms document SDK usage/performance metrics. The dependency therefore must not be described as telemetry-free. This APK denies app-owned Internet access, and Google's published terms state media inputs and inference outputs are processed on-device. Privacy disclosures and dependency behavior still require review for a distributed release; absence of application upload code is not a source-level audit of closed-source SDK internals.
+
 ## Defects and Targeted Fixes
 
 | Severity | Baseline defect / evidence | Changed files and implementation | Expected/current behavior |

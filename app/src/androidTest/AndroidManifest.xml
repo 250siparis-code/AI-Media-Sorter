@@ -1,13 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <permission android:name="com.aimediasorter.app.QA_PROVIDER" android:protectionLevel="signature" />
-    <uses-permission android:name="com.aimediasorter.app.QA_PROVIDER" />
     <application>
         <!-- Present only in the instrumentation APK, never in the distributable app. -->
         <provider android:name="com.aimediasorter.app.FixtureDocumentsProvider"
             android:authorities="com.aimediasorter.app.qa.documents"
-            android:exported="true" android:grantUriPermissions="true"
-            android:permission="com.aimediasorter.app.QA_PROVIDER">
+            android:exported="true" android:grantUriPermissions="true">
             <intent-filter>
                 <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
             </intent-filter>

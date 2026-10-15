@@ -1,7 +1,9 @@
 name: Android Build and Safety Tests
 on:
   push:
+    paths-ignore: ['docs/**', 'README.md']
   pull_request:
+    paths-ignore: ['docs/**', 'README.md']
   workflow_dispatch:
 permissions:
   contents: read

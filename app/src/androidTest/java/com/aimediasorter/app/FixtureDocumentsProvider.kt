@@ -18,12 +18,23 @@ class FixtureDocumentsProvider : DocumentsProvider() {
     private var corrupt = false
     private var timestampUnsupported = false
     override fun onCreate(): Boolean = true
+    private fun enforceCaller() {
+        val caller = android.os.Binder.getCallingUid()
+        if (caller == android.os.Process.myUid()) return
+        val manager = requireNotNull(context).packageManager
+        val target = "com.aimediasorter.app.debug"
+        require(manager.getPackagesForUid(caller)?.contains(target) == true &&
+            manager.checkSignatures(requireNotNull(context).packageName, target) ==
+                android.content.pm.PackageManager.SIGNATURE_MATCH) { "Untrusted QA provider caller." }
+    }
     private fun file(id: String): File {
+        enforceCaller()
         val path = File(base, id)
         require(path.canonicalPath.startsWith(base.canonicalPath + "/"))
         return path
     }
     override fun call(method: String, arg: String?, extras: Bundle?): Bundle? {
+        enforceCaller()
         when (method) {
             "qa.reset" -> {
                 base.deleteRecursively()
