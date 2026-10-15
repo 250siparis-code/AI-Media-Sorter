@@ -77,6 +77,9 @@ fun SourceDestinationScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
+        Text(stringResource(R.string.metadata_access_notice), style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.height(12.dp))
+
         // Source Directory Card
         FolderPickerCard(
             label = stringResource(R.string.source_folder_label),

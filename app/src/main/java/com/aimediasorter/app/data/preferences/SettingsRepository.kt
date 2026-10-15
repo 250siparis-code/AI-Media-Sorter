@@ -24,6 +24,7 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 
 @Serializable
 data class AppSettings(
+    val analysisPaused: Boolean = false,
     val sourceUri: String = "",
     val destinationUri: String = "",
     val includeSubfolders: Boolean = true,
@@ -45,6 +46,7 @@ data class AppSettings(
 class SettingsRepository(private val context: Context) {
 
     private object Keys {
+        val ANALYSIS_PAUSED = booleanPreferencesKey("analysis_paused")
         val SOURCE_URI = stringPreferencesKey("source_uri")
         val DESTINATION_URI = stringPreferencesKey("destination_uri")
         val INCLUDE_SUBFOLDERS = booleanPreferencesKey("include_subfolders")
@@ -65,6 +67,7 @@ class SettingsRepository(private val context: Context) {
 
     val settingsFlow: Flow<AppSettings> = context.dataStore.data.map { prefs ->
         AppSettings(
+            analysisPaused = prefs[Keys.ANALYSIS_PAUSED] ?: false,
             sourceUri = prefs[Keys.SOURCE_URI] ?: "",
             destinationUri = prefs[Keys.DESTINATION_URI] ?: "",
             includeSubfolders = prefs[Keys.INCLUDE_SUBFOLDERS] ?: true,
@@ -98,6 +101,7 @@ class SettingsRepository(private val context: Context) {
         )
     }
 
+    suspend fun updateAnalysisPaused(paused: Boolean) = context.dataStore.edit { it[Keys.ANALYSIS_PAUSED] = paused }
     suspend fun updateSourceUri(uri: String) = context.dataStore.edit { it[Keys.SOURCE_URI] = uri }
     suspend fun updateDestinationUri(uri: String) = context.dataStore.edit { it[Keys.DESTINATION_URI] = uri }
     suspend fun updateIncludeSubfolders(enabled: Boolean) = context.dataStore.edit { it[Keys.INCLUDE_SUBFOLDERS] = enabled }

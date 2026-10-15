@@ -1,47 +1,55 @@
-# AI Media Sorter — Native Android Application (`com.aimediasorter.app`)
+# AI Media Sorter
 
-Native Android application built with **Kotlin**, **Jetpack Compose**, **Material 3 (Pure Black AMOLED `#000000` / `#8B45FF`)**, **Room**, **WorkManager**, **ONNX Runtime Mobile**, **ML Kit Image Labeling**, and a standalone **Termux-Compatible File Operation Export** engine.
+Native Android application using Kotlin, Jetpack Compose, Material 3, Room and WorkManager. The UI uses an AMOLED black background and purple accents, with English and Turkish resources.
 
----
+## Current behavior
 
-## 1. Important Disclosure on AI Models & Score Calibration (For Code Audit)
+- Discover supported photos and videos in a user-selected SAF directory, optionally including subdirectories.
+- Run the **bundled Google ML Kit image-labeling model locally**. No paid API, media upload or INTERNET permission is required.
+- Map actual SDK labels to People, Food, Vehicles, Animals, Nature, Buildings, Technology, Text and Other.
+- Flag unknown, weak or competing classifications for review. Scores are model outputs, **not measured classification accuracy**.
+- Decode several bounded video frames and aggregate their predictions. Repeated decoded frames count once; insufficient samples and ambiguous scenes require review. Recorded times are requested sampling times, not measured frame presentation timestamps.
+- Keep manual category corrections and exclusion choices for unchanged original bytes.
+- Organize verified files or export CSV/JSON and standalone Termux scripts through a user-selected ZIP destination.
 
-1. **Bundled 10 KB ONNX Model (`app/src/main/assets/models/media_visual_embedder.onnx`)**:
-   - This 10 KB ONNX Opset 13 graph is a **heuristic / demonstration projection model** that operates on a 64-dimensional hand-crafted spatial, color-histogram, and Sobel-edge descriptor extracted by `VisualFeatureExtractor.kt`.
-   - **Limitation**: It is included to validate the end-to-end offline `ai.onnxruntime` execution pipeline, tensor plumbing, and primary-subject ROI weighting without requiring an initial multi-megabyte download. **Its outputs must not be treated as validated general-purpose semantic image recognition.**
-   - **General-Purpose Semantic Recognition**: For real-world semantic image recognition, the application integrates:
-     1. **Google ML Kit On-Device Image Labeling (`com.google.mlkit:image-labeling:17.0.8`)** in `HYBRID_ONNX_AND_MLKIT` mode (offline 400+ class MobileNet visual classifier).
-     2. **External MobileCLIP / Vision ONNX Model Import (`CUSTOM_MOBILECLIP_ONNX`)**: `OnDeviceAiClassifier.kt` and `VisualFeatureExtractor.bitmapToNormalizedNchwBuffer()` support `[1, 3, 224, 224]` NCHW CLIP-normalized RGB tensors so a full MobileCLIP-S0 `.onnx` vision backbone can be imported from device storage.
-2. **Uncalibrated Softmax & Similarity Scores**:
-   - The temperature-scaled softmax outputs (`calibratedConfidence` / `classificationScoreUncalibrated`) and embedding dot-products (`rawSimilarityScore`) produced by `PrimarySubjectDisambiguator.kt` are **uncalibrated heuristic ranking scores**, not empirically calibrated probabilities (no Platt scaling or isotonic regression on a held-out validation dataset has been applied).
+**Custom category descriptions match supported label keywords. They are not open-vocabulary CLIP text prompts.** MobileCLIP import is unavailable until matching encoders, tokenizer, model weights and licensing are supplied. The bundled small ONNX graph is a handcrafted diagnostic projection; it is clearly labeled and cannot approve automatic transfers.
 
----
+## File preservation
 
-## 2. Termux-Compatible File Operation Export (`TermuxOperationExporter.kt`)
+The default is **Analysis Mode**, **COPY**, and **keep the source when filesystem modification time cannot be verified**. Enable Organize Mode explicitly before an in-app transfer.
 
-Located in `app/src/main/java/com/aimediasorter/app/domain/storage/TermuxOperationExporter.kt` and exposed in the **Export Operations** panel of `AnalysisResultsScreen.kt`.
+The production transfer protocol copies to an exclusively created staging document, verifies SHA-256 by reading the staging bytes, creates a new collision-safe final document and reads the final bytes back. It records durable checkpoints and checks the source again before deletion. A requested MOVE becomes a verified COPY with the source retained when stable file identity, durable publication or required timestamp preservation cannot be confirmed. Deletion failure is reported as a retained source.
 
-- **Works 100% Independently of In-App File Moving**: Generating an export never moves, modifies, or deletes any original media files.
-- **Four Output Formats**:
-  1. `classification_report.csv` — Human-readable classification report with source path/URI, resolved POSIX path, SAF restriction flag, destination directory, filename, detected/effective category, uncalibrated score, media type, original modification timestamp, and requested operation.
-  2. `file_operations.json` — Machine-readable JSON manifest containing all metadata and schema version.
-  3. `move_files.sh` — Executable POSIX/Termux shell script for moving files (`MOVE`).
-  4. `copy_files.sh` — Executable POSIX/Termux shell script for copying files (`COPY`).
-- **Termux Script Safety Guarantees**:
-  - **Defaults to Dry-Run Mode (`DRY_RUN=1`)**: Running `sh move_files.sh` prints planned actions without modifying any files.
-  - **Requires Explicit Confirmation**: Passing `--execute` prompts the user to type `YES` before any file operation begins (or `--execute --yes` for automated batch runs).
-  - **Strict POSIX Single-Quote Escaping**: Preserves Unicode characters (`ç, ğ, ı, ö, ş, ü`, emoji, CJK), spaces, quotes, and special shell characters safely (`'...'` with `'''`).
-  - **SHA-256 Verification Before Deletion**: Copies to a temporary `.aimediasorter.tmp.$$` file first, verifies `sha256sum` equality between source and destination, restores the original modification timestamp via `touch -m -d "@<epoch>"`, verifies `stat -c %Y`, and deletes the source file in `MOVE` mode **only** after verification succeeds.
-  - **SAF (`content://`) Detection**: Explicitly detects and reports files that only have an unresolvable Android `content://` URI (`[SAF-ONLY]`) instead of treating them as ordinary filesystem paths.
+The app requests original media bytes rather than Android compatibility-transcoded or metadata-redacted versions. ACCESS_MEDIA_LOCATION may be necessary to retain embedded metadata. If original access is unavailable, classification may still run, but the item is marked for review and cannot be transferred.
 
----
+Filesystem modification time, EXIF capture date and video metadata are separate fields. A provider date is never substituted for a verified filesystem modification time. Unsupported timestamp restoration is reported. Android document providers do not all expose the identity, durability or timestamp controls needed for MOVE; retaining the source is intentional.
 
-## 3. GitHub Actions CI & Building the Debug APK
+Interrupted operations are reconciled for review. Recovery never automatically deletes sources. Analysis restarts can reuse unchanged checksummed classifications; this is not a byte-offset transfer resume.
 
-This repository includes `.github/workflows/android-build.yml`, which automatically:
-1. Configures **JDK 17 (Temurin)** and **Android SDK Platform 35**.
-2. Runs unit tests (`gradle testDebugUnitTest`).
-3. Compiles the Debug APK (`gradle assembleDebug`).
-4. Uploads `app-debug.apk` as a downloadable workflow artifact (`AIMediaSorter-debug-apk`).
+## Exported operations
 
-> **Note**: No Android APK is claimed to have been compiled in the offline Linux generation environment; the APK is built when the GitHub Actions workflow runs (or locally via `./gradlew assembleDebug`).
+Use **Save export ZIP** to make generated files accessible outside the app. The Termux executor uses Python 3 and hashlib SHA-256, with filenames encoded as JSON data rather than shell commands.
+
+Scripts default to dry run. Use --execute for a confirmation prompt or --execute --yes for an explicitly authorized batch. Review items remain skipped unless --include-review is also supplied. URI-only paths are marked unresolved rather than guessed. Android SAF permission does not grant Termux access; Termux needs its own storage access.
+
+## Build and verification
+
+Requirements: JDK 17, Android SDK Platform 35, Build Tools 35.0.0 and the checked-in Gradle 8.9 wrapper.
+
+    ./gradlew clean testDebugUnitTest lintDebug assembleDebug
+    python3 -m unittest discover -s tests -v
+
+For native instrumentation, install FFmpeg and start an API 29+ emulator or connect a test device:
+
+    python3 scripts/generate_test_media.py
+    ./gradlew connectedDebugAndroidTest
+
+CI runs JVM/Python tests, a clean Android build, lint, APK manifest/signature/alignment inspection, and native tests on API 29 and API 35. Results and debug APKs are downloadable from Actions. A successful build alone does not establish classification accuracy or suitability for a real archive.
+
+See [Independent review and fix record](docs/INDEPENDENT_REVIEW.md) for evidence, resolved defects and remaining validation.
+
+## Dependencies and release status
+
+ML Kit uses the bundled image-labeling SDK; its base weights are packaged by the dependency rather than a separate project model file. ONNX Runtime is used only for the diagnostic model. Dependency/model terms and the diagnostic asset's provenance must be reviewed before distributing a release; this repository does not establish a license grant for third-party weights.
+
+Representative labeled photographs/videos and physical-device measurements are still needed to establish accuracy, RAM, battery and throughput. Begin device acceptance with copied sample media in isolated folders.

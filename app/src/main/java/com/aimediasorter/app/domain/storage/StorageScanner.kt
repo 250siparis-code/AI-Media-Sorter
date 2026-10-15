@@ -47,7 +47,14 @@ class StorageScanner(private val context: Context) {
         val destinationId = runCatching { DocumentsContract.getTreeDocumentId(destination) }.getOrNull() ?: return true
         if (sourceId == destinationId) return true
         if (source.authority == "com.android.externalstorage.documents") {
-            return destinationId.startsWith(sourceId.trimEnd('/') + "/")
+            val sourceParts = sourceId.split(':', limit = 2)
+            val destinationParts = destinationId.split(':', limit = 2)
+            if (sourceParts.size != 2 || destinationParts.size != 2) return true
+            if (sourceParts[0] != destinationParts[0]) return false
+            val sourcePath = sourceParts[1].trim('/')
+            val destinationPath = destinationParts[1].trim('/')
+            return sourcePath.isEmpty() || destinationPath == sourcePath ||
+                destinationPath.startsWith(sourcePath + "/")
         }
         return runCatching {
             DocumentsContract.isChildDocument(context.contentResolver,

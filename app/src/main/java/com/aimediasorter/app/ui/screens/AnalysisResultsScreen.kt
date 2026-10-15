@@ -124,7 +124,7 @@ fun AnalysisResultsScreen(
                             selectedCategoryFilter = if (selectedCategoryFilter == cat.id) null else cat.id
                             filterNeedsReviewOnly = false
                         },
-                        label = { Text("${cat.name} ($count)") }
+                        label = { Text("${categoryDisplayName(cat.id, cat.name)} ($count)") }
                     )
                 }
             }
@@ -312,7 +312,7 @@ fun AnalysisResultsScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = "${cat.name} (/${cat.destinationSubfolder})",
+                                text = "${categoryDisplayName(cat.id, cat.name)} (/${cat.destinationSubfolder})",
                                 color = if (cat.id == target.effectiveCategoryId) PrimaryPurpleLight else TextPrimaryWhite
                             )
                         }
@@ -415,7 +415,7 @@ private fun MediaResultGridCard(
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = item.effectiveCategoryName,
+                    text = categoryDisplayName(item.effectiveCategoryId, item.effectiveCategoryName),
                     style = MaterialTheme.typography.titleMedium,
                     color = PrimaryPurpleLight
                 )

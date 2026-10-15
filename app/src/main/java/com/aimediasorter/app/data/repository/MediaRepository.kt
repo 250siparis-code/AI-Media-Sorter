@@ -75,14 +75,17 @@ class MediaRepository(private val context: Context) {
             newCategory.destinationSubfolder + "/" + item.fileName)
     }
     suspend fun setExcludeFromTransfer(itemId: Long, excluded: Boolean) = db.mediaItemDao().updateExcludedState(itemId, excluded)
-    fun setAnalysisPaused(paused: Boolean) { _analysisProgress.update { it.copy(isPaused = paused) } }
+    suspend fun setAnalysisPaused(paused: Boolean) {
+        settingsRepository.updateAnalysisPaused(paused)
+        _analysisProgress.update { it.copy(isPaused = paused) }
+    }
     fun markAnalysisQueued() { _analysisProgress.value = LiveAnalysisProgress(isRunning = true, isDiscovering = true) }
     fun markTransferQueued() { _transferProgress.value = LiveTransferProgress(isRunning = true) }
 
     private fun digest(value: String): String = MessageDigest.getInstance("SHA-256")
         .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
     private fun signature(settings: AppSettings, categories: List<CategoryEntity>): String =
-        digest("mlkit-image-labeling:17.0.8;diagnostic-onnx-v1;" + settings.aiEngineMode.name + ";" +
+        digest("mlkit-image-labeling:17.0.9;diagnostic-onnx-v1;ort:1.22.0;" + settings.hardwareAcceleration + ";" + settings.aiEngineMode.name + ";" +
             settings.confidenceThreshold + ";" + json.encodeToString(categories.sortedBy { it.id }))
 
     private suspend fun checksum(uri: String, filePath: String? = null): String {
@@ -154,11 +157,12 @@ class MediaRepository(private val context: Context) {
                     count -> _analysisProgress.update { it.copy(totalFiles = count) }
                 }.collect { candidate ->
                     currentCoroutineContext().ensureActive()
-                    while (_analysisProgress.value.isPaused) {
+                    while (settingsRepository.settingsFlow.first().analysisPaused) {
+                        _analysisProgress.update { it.copy(isPaused = true) }
                         currentCoroutineContext().ensureActive()
                         delay(250)
                     }
-                    _analysisProgress.update { it.copy(currentFileName = candidate.fileName,
+                    _analysisProgress.update { it.copy(isPaused = false, currentFileName = candidate.fileName,
                         currentPreviewUri = candidate.uri.toString()) }
                     val existing = db.mediaItemDao().getByUri(candidate.uri.toString())
                     var sourceChecksum: String? = null
@@ -293,8 +297,14 @@ class MediaRepository(private val context: Context) {
                     var moved = 0
                     for (item in items) {
                         currentCoroutineContext().ensureActive()
-                        require(settingsRepository.settingsFlow.first().operationMode == OperationMode.MOVE_FILES) {
-                            "Organize Mode was revoked; transfer stopped."
+                        val currentSettings = settingsRepository.settingsFlow.first()
+                        require(currentSettings.operationMode == OperationMode.MOVE_FILES &&
+                            currentSettings.sourceUri == settings.sourceUri &&
+                            currentSettings.destinationUri == settings.destinationUri &&
+                            currentSettings.transferMethod == settings.transferMethod &&
+                            currentSettings.timestampPolicy == settings.timestampPolicy &&
+                            signature(currentSettings, db.categoryDao().getAllCategories()) == session.analysisSignature) {
+                            "Transfer settings changed; original preserved."
                         }
                         if (db.mediaItemDao().getMediaItemById(item.id)?.isExcludedFromTransfer == true) continue
                         val operationId = UUID.randomUUID().toString()
@@ -315,7 +325,13 @@ class MediaRepository(private val context: Context) {
                                 val live = settingsRepository.settingsFlow.first()
                                 require(live.operationMode == OperationMode.MOVE_FILES && live.sourceUri == settings.sourceUri &&
                                     live.destinationUri == settings.destinationUri &&
-                                    db.mediaItemDao().getMediaItemById(item.id)?.isExcludedFromTransfer == false) {
+                                    live.transferMethod == settings.transferMethod &&
+                                    live.timestampPolicy == settings.timestampPolicy &&
+                                    signature(live, db.categoryDao().getAllCategories()) == session.analysisSignature &&
+                                    db.mediaItemDao().getMediaItemById(item.id)?.let {
+                                        !it.isExcludedFromTransfer && it.effectiveCategoryId == item.effectiveCategoryId &&
+                                            it.transferStatus == TransferItemStatus.IN_PROGRESS.name
+                                    } == true) {
                                     "Organize Mode revoked; original preserved."
                                 }
                             }
@@ -329,10 +345,11 @@ class MediaRepository(private val context: Context) {
                         outcomes += outcome
                         db.withTransaction {
                             db.transferLogDao().insertLog(outcome.logEntry)
-                            db.mediaItemDao().updateMediaItem(item.copy(transferStatus = outcome.status.name,
+                            val currentItem = db.mediaItemDao().getMediaItemById(item.id) ?: item
+                            db.mediaItemDao().updateMediaItem(currentItem.copy(transferStatus = outcome.status.name,
                                 destinationUriString = outcome.destinationUriString, sha256Checksum = item.sha256Checksum,
                                 timestampVerified = outcome.timestampPreserved, timestampStatusNote = outcome.detailsMessage,
-                                needsManualReview = item.needsManualReview || outcome.status == TransferItemStatus.RECOVERY_REQUIRED))
+                                needsManualReview = currentItem.needsManualReview || outcome.status == TransferItemStatus.RECOVERY_REQUIRED))
                             db.transferJournalDao().upsert(journal.copy(
                                 phase = if (outcome.status == TransferItemStatus.FAILED || outcome.status == TransferItemStatus.RECOVERY_REQUIRED) "FAILED" else "FINALIZED",
                                 details = outcome.detailsMessage))

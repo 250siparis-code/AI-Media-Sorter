@@ -129,7 +129,7 @@
     <string name="btn_export_op_move_sh">Export Move Script</string>
     <string name="btn_export_op_copy_sh">Export Copy Script</string>
     <string name="btn_export_op_all">Export All (4 Files)</string>
-    <string name="export_ops_result_banner">Generated in %1$s (%2$d files included). Original media files were NOT moved or modified.</string>
+    <string name="export_ops_result_banner">%2$d files included. %1$s</string>
 
     <!-- Screen 6: Media Details -->
     <string name="details_title">Media Inspection</string>
@@ -159,7 +159,7 @@
     <string name="transfer_safety_checklist">Destination readback verification • Source change checks • Collision protection • Separate modification-time verification</string>
     <string name="btn_start_transfer">Confirm &amp; Execute Transfer</string>
     <string name="dialog_confirm_transfer_title">Confirm File Operations</string>
-    <string name="dialog_confirm_transfer_msg">Ready to %1$s %2$d files into categorized folders. Originals are never deleted before SHA-256 integrity and timestamp verification.</string>
+    <string name="dialog_confirm_transfer_msg">Ready to %1$s %2$d files into categorized folders. Originals are deleted only after destination SHA-256 verification and storage safety checks. The keep-original timestamp policy retains sources when modification time cannot be verified.</string>
     <string name="transfer_result_summary">Succeeded: %1$d | Timestamp Verified: %2$d | Collisions Resolved: %3$d | Failed: %4$d</string>
 
     <!-- Screen 8: Settings -->
@@ -206,4 +206,16 @@
     <string name="details_model_score">Model score: %1$d%% | Top-2 margin: %2$.3f</string>
     <string name="details_unavailable">This item is unavailable in the current source.</string>
     <string name="btn_back">Back</string>
+    <string name="export_saved">Export saved.</string>
+    <string name="metadata_access_notice">Original-byte transfers may require permission to access media location metadata. This preserves embedded data; no location is collected or uploaded. If access is unavailable, originals stay protected and transfer is blocked.</string>
+    <string name="history_session_fmt">%1$d/%2$d files analyzed • Review: %3$d</string>
+    <string name="category_display_people">People</string>
+    <string name="category_display_food">Food</string>
+    <string name="category_display_vehicles">Vehicles</string>
+    <string name="category_display_animals">Animals</string>
+    <string name="category_display_nature">Nature</string>
+    <string name="category_display_buildings">Buildings</string>
+    <string name="category_display_technology">Technology</string>
+    <string name="category_display_text">Text</string>
+    <string name="category_display_other">Other</string>
 </resources>

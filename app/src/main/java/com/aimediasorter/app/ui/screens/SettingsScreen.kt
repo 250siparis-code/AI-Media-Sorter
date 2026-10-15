@@ -200,7 +200,11 @@ fun SettingsScreen(
             if (!exportStatusMessage.isNullOrBlank()) {
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = stringResource(R.string.export_ready),
+                    text = when (exportStatusMessage) {
+                        "EXPORT_READY" -> stringResource(R.string.export_ready)
+                        "EXPORT_SAVED" -> stringResource(R.string.export_saved)
+                        else -> stringResource(R.string.action_failed)
+                    },
                     style = MaterialTheme.typography.labelMedium,
                     color = StatusEmerald
                 )
@@ -212,7 +216,7 @@ fun SettingsScreen(
             } else {
                 sessions.take(5).forEach { s ->
                     Text(
-                        text = "• [${s.status}] ${s.totalClassified}/${s.totalScanned} files (Uncertain: ${s.uncertainCount})",
+                        text = stringResource(R.string.history_session_fmt, s.totalClassified, s.totalScanned, s.uncertainCount),
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }

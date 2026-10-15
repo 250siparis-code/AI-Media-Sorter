@@ -48,6 +48,18 @@ class NativePipelineTest {
         canvas.drawRect(110f, 70f, 230f, 160f, Paint().apply { color = Color.RED })
     }
 
+    @Test fun nativePageSizeAndPassthroughCapabilitiesMatchTestEnvironment() {
+        val expected = InstrumentationRegistry.getArguments().getString("expectedPageSize")?.toLong()
+        if (expected != null) assertEquals(expected, android.system.Os.sysconf(android.system.OsConstants._SC_PAGESIZE))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            context.resources.getXml(R.xml.media_capabilities).use {
+                val capabilities = android.media.ApplicationMediaCapabilities.createFromXml(it)
+                assertTrue(capabilities.isVideoMimeTypeSupported("video/hevc"))
+                assertTrue(capabilities.isHdrTypeSupported(android.media.MediaFeature.HdrType.HDR10))
+            }
+        }
+    }
+
     @Test fun bundledMlKitActuallyExecutesWithoutInternetPermission() = runBlocking {
         assertEquals(PackageManager.PERMISSION_DENIED,
             context.packageManager.checkPermission(Manifest.permission.INTERNET, context.packageName))
@@ -175,6 +187,16 @@ class NativePipelineTest {
                 MediaTypeFilter.ALL, setOf("jpg")).take(10).toList().size)
             assertTrue(scanner.isDestinationInsideSource(root.path, File(root, "sorted").path))
         } finally { root.deleteRecursively() }
+    }
+
+    @Test fun externalStorageVolumeRootRejectsEveryDestinationOnThatVolume() {
+        val scanner = StorageScanner(context)
+        val authority = "com.android.externalstorage.documents"
+        fun tree(id: String) = android.provider.DocumentsContract.buildTreeDocumentUri(authority, id).toString()
+        assertTrue(scanner.isDestinationInsideSource(tree("primary:"), tree("primary:Sorted")))
+        assertTrue(scanner.isDestinationInsideSource(tree("primary:Pictures"), tree("primary:Pictures/Sorted")))
+        assertFalse(scanner.isDestinationInsideSource(tree("primary:Pictures"), tree("primary:Pictures2")))
+        assertFalse(scanner.isDestinationInsideSource(tree("primary:"), tree("ABCD-1234:Sorted")))
     }
 
     private fun item(uri: String, source: String, session: String) = MediaItemEntity(

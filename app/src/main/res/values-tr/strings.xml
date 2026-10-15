@@ -129,7 +129,7 @@
     <string name="btn_export_op_move_sh">Taşıma Betiği (.sh)</string>
     <string name="btn_export_op_copy_sh">Kopyalama Betiği (.sh)</string>
     <string name="btn_export_op_all">Tümünü Dışa Aktar (4 Dosya)</string>
-    <string name="export_ops_result_banner">%1$s dizinine üretildi (%2$d dosya dahil edildi). Orijinal medya dosyaları TAŞINMADI veya değiştirilmedi.</string>
+    <string name="export_ops_result_banner">%2$d dosya dahil edildi. %1$s</string>
 
     <!-- Screen 6: Media Details -->
     <string name="details_title">Medya Detayları ve İnceleme</string>
@@ -159,7 +159,7 @@
     <string name="transfer_safety_checklist">Hedefi yeniden okuyarak doğrulama • Kaynak değişikliği kontrolü • Çakışma koruması • Ayrı değişiklik zamanı doğrulaması</string>
     <string name="btn_start_transfer">Onayla ve Aktarımı Başlat</string>
     <string name="dialog_confirm_transfer_title">Dosya İşlemini Onayla</string>
-    <string name="dialog_confirm_transfer_msg">%2$d dosya ilgili kategori klasörlerine (%1$s) aktarılacak. SHA-256 doğrulaması ve zaman damgası kontrolü tamamlanmadan orijinal dosyalar asla silinmez.</string>
+    <string name="dialog_confirm_transfer_msg">%2$d dosya kategorilere göre %1$s işlemiyle düzenlenecek. Özgün dosyalar yalnızca hedef SHA-256 doğrulaması ve depolama güvenlik kontrolleri sonrasında silinir. Özgünü koruma ilkesi, değişiklik zamanı doğrulanamazsa kaynağı saklar.</string>
     <string name="transfer_result_summary">Başarılı: %1$d | Zaman Damgası Korunan: %2$d | Çakışma Çözülen: %3$d | Hata: %4$d</string>
 
     <!-- Screen 8: Settings -->
@@ -206,4 +206,16 @@
     <string name="details_model_score">Model puanı: %1$d%% | İlk iki sonuç farkı: %2$.3f</string>
     <string name="details_unavailable">Bu öğe mevcut kaynakta bulunamıyor.</string>
     <string name="btn_back">Geri</string>
+    <string name="export_saved">Dışa aktarım kaydedildi.</string>
+    <string name="metadata_access_notice">Özgün dosya aktarımı, medya konum bilgilerine erişim izni gerektirebilir. Bu izin dosyanın içindeki bilgileri korur; konum toplanmaz veya yüklenmez. Erişim yoksa özgün dosyalar korunur ve aktarım engellenir.</string>
+    <string name="history_session_fmt">%1$d/%2$d dosya analiz edildi • İnceleme: %3$d</string>
+    <string name="category_display_people">İnsanlar</string>
+    <string name="category_display_food">Yiyecekler</string>
+    <string name="category_display_vehicles">Araçlar</string>
+    <string name="category_display_animals">Hayvanlar</string>
+    <string name="category_display_nature">Doğa</string>
+    <string name="category_display_buildings">Binalar</string>
+    <string name="category_display_technology">Teknoloji</string>
+    <string name="category_display_text">Metin</string>
+    <string name="category_display_other">Diğer</string>
 </resources>

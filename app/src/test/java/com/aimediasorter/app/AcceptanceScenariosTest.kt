@@ -89,6 +89,16 @@ class AcceptanceScenariosTest {
             assertEquals("newer source", sourceFile.readText())
         }
     }
+    @Test fun destinationChangedDuringDeletionCheckpointNeverRemovesOriginal() = runBlocking {
+        try {
+            transfer(checkpoint = {
+                if (it.phase == "SOURCE_DELETE_PENDING") File(it.destinationId!!).writeText("new destination content")
+            })
+            fail("Destination changes after checkpoint must block deletion")
+        } catch (_: IllegalArgumentException) {
+            assertArrayEquals(payload, sourceFile.readBytes())
+        }
+    }
     @Test fun sameSizeDestinationCorruptionIsDetected() = runBlocking {
         val delegate = LocalTransferDirectory(File(destinationRoot, "Food"), destinationRoot)
         val corrupting = object : TransferDirectory by delegate {

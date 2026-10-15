@@ -15,6 +15,7 @@ analyzer = sdk / "cmdline-tools/latest/bin/apkanalyzer"
 def manifest(field):
     return subprocess.check_output([str(analyzer), "manifest", field, str(apk)], text=True).strip()
 permissions = manifest("permissions").splitlines()
+assert "com.aimediasorter.app.qa.documents" not in manifest("print"), "Test provider leaked into app APK"
 assert not any("android.permission.INTERNET" in p for p in permissions), permissions
 assert not any("MANAGE_EXTERNAL_STORAGE" in p for p in permissions), permissions
 assert manifest("min-sdk") == "29"
@@ -25,7 +26,6 @@ native = []
 with zipfile.ZipFile(apk) as archive:
     assert "assets/models/media_visual_embedder.onnx" in archive.namelist()
     assert "assets/termux/manifest_executor.py" in archive.namelist()
-    assert not any("FixtureDocumentsProvider" in n for n in archive.namelist())
     for name in archive.namelist():
         if not name.endswith(".so"):
             continue
@@ -55,3 +55,5 @@ directory = pathlib.Path("app/build/reports")
 directory.mkdir(parents=True, exist_ok=True)
 (directory / "apk-inspection.json").write_text(json.dumps(report, indent=2))
 print(json.dumps(report, indent=2))
+
+assert all(lib['supports_16kb_alignment'] for lib in native if '/arm64-v8a/' in lib['path'] or '/x86_64/' in lib['path']), '64-bit native libraries must support 16 KB load alignment'

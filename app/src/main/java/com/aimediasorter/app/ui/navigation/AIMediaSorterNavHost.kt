@@ -6,6 +6,8 @@ import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -39,7 +41,23 @@ fun AIMediaSorterNavHost(viewModel: MainViewModel) {
     val loopError by viewModel.folderLoopError.collectAsStateWithLifecycle()
     val lastTermuxExport by viewModel.lastTermuxExportResult.collectAsStateWithLifecycle()
 
+    val snackbar = remember { SnackbarHostState() }
+    val statusText = exportMessage?.let { status ->
+        when (status) {
+            "EXPORT_READY" -> stringResource(R.string.export_ready)
+            "EXPORT_SAVED" -> stringResource(R.string.export_saved)
+            "ORGANIZE_REQUIRED" -> stringResource(R.string.transfer_analysis_mode_banner)
+            else -> stringResource(R.string.action_failed) + " " + status.removePrefix("ERROR:")
+        }
+    }
+    LaunchedEffect(statusText) {
+        if (statusText != null) {
+            snackbar.showSnackbar(statusText)
+            viewModel.dismissStatusMessage()
+        }
+    }
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         containerColor = AmoledPureBlack,
         bottomBar = {
             NavigationBar(containerColor = AmoledCardSurface) {

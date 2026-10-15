@@ -155,7 +155,7 @@ private fun CategoryRowCard(
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = category.name,
+                    text = categoryDisplayName(category.id, category.name),
                     style = MaterialTheme.typography.titleMedium
                 )
                 Text(

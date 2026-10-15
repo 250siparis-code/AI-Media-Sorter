@@ -127,7 +127,7 @@ fun MediaDetailsScreen(
                     item.exifCaptureDateMs?.let { dateFormat.format(Date(it)) }
                         ?: stringResource(R.string.details_exif_none)
                 )
-                DetailRow(stringResource(R.string.details_detected_category), item.effectiveCategoryName)
+                DetailRow(stringResource(R.string.details_detected_category), categoryDisplayName(item.effectiveCategoryId, item.effectiveCategoryName))
                 Text(
                     text = if (item.inferenceEngine.startsWith("ML_KIT")) stringResource(
                         R.string.details_model_score, (item.calibratedConfidence * 100).toInt(), item.topMargin
@@ -233,7 +233,7 @@ fun MediaDetailsScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = "${cat.name} (/${cat.destinationSubfolder})",
+                                text = "${categoryDisplayName(cat.id, cat.name)} (/${cat.destinationSubfolder})",
                                 color = if (cat.id == item.effectiveCategoryId) PrimaryPurpleLight else TextPrimaryWhite
                             )
                         }

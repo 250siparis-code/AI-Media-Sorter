@@ -86,8 +86,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     )
 
     val analysisProgress: StateFlow<LiveAnalysisProgress> =
-        combine(repo.analysisProgress, workManager.getWorkInfosForUniqueWorkFlow(MediaAnalysisWorker.WORK_NAME)) { progress, work ->
-            progress.copy(isRunning = work.any { !it.state.isFinished },
+        combine(repo.analysisProgress, workManager.getWorkInfosForUniqueWorkFlow(MediaAnalysisWorker.WORK_NAME), settingsRepo.settingsFlow) { progress, work, settings ->
+            progress.copy(isPaused = settings.analysisPaused && work.any { !it.state.isFinished }, isRunning = work.any { !it.state.isFinished },
                 errorMessage = progress.errorMessage ?: if (work.singleOrNull()?.state == androidx.work.WorkInfo.State.FAILED) "Analysis failed; inspect permissions and settings." else null)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), LiveAnalysisProgress())
 
@@ -125,7 +125,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 workManager.cancelUniqueWork(MediaTransferWorker.WORK_NAME)
                 settingsRepo.updateSourceUri(uri.toString())
             } catch (error: Exception) {
-                _exportStatusMessage.value = error.message
+                _exportStatusMessage.value = "ERROR:" + error.message
             }
         }
     }
@@ -137,7 +137,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 workManager.cancelUniqueWork(MediaTransferWorker.WORK_NAME)
                 settingsRepo.updateDestinationUri(uri.toString())
             } catch (error: Exception) {
-                _exportStatusMessage.value = error.message
+                _exportStatusMessage.value = "ERROR:" + error.message
             }
         }
     }
@@ -252,6 +252,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun startAnalysis() {
         if (analysisProgress.value.isRunning || activeAnalysisJob?.isActive == true) return
         activeAnalysisJob = launchSafely {
+            repo.setAnalysisPaused(false)
             val settings = settingsRepo.settingsFlow.first()
             val work = OneTimeWorkRequestBuilder<MediaAnalysisWorker>()
                 .setInputData(workDataOf(MediaAnalysisWorker.SETTINGS_JSON to Json.encodeToString(settings))).build()
@@ -261,12 +262,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun togglePauseAnalysis() {
         val currentPaused = analysisProgress.value.isPaused
-        repo.setAnalysisPaused(!currentPaused)
+        launchSafely { repo.setAnalysisPaused(!currentPaused) }
     }
 
     fun cancelAnalysis() {
         workManager.cancelUniqueWork(MediaAnalysisWorker.WORK_NAME)
-        repo.setAnalysisPaused(false)
+        launchSafely { repo.setAnalysisPaused(false) }
     }
 
     fun reassignMediaCategory(itemId: Long, category: CategoryEntity) {
@@ -286,7 +287,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         activeTransferJob = launchSafely {
             val settings = settingsRepo.settingsFlow.first()
             if (settings.operationMode != OperationMode.MOVE_FILES) {
-                _exportStatusMessage.value = "Enable Organize Mode first."
+                _exportStatusMessage.value = "ORGANIZE_REQUIRED"
                 return@launchSafely
             }
             val work = OneTimeWorkRequestBuilder<MediaTransferWorker>()
@@ -313,9 +314,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
                 } ?: error("Export destination unavailable.")
-                _exportStatusMessage.value = "Export saved."
+                _exportStatusMessage.value = "EXPORT_SAVED"
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (error: Exception) { _exportStatusMessage.value = error.message }
+            catch (error: Exception) { _exportStatusMessage.value = "ERROR:" + error.message }
         }
     }
 
@@ -324,7 +325,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val s = settingsRepo.settingsFlow.first()
             val res = repo.exportTermuxCsv(selectedIds, s.destinationUri, s.transferMethod)
             _lastTermuxExportResult.value = res
-            _exportStatusMessage.value = res.exportDirectoryPath
+            _exportStatusMessage.value = "EXPORT_READY"
         }
     }
 
@@ -333,7 +334,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val s = settingsRepo.settingsFlow.first()
             val res = repo.exportTermuxJson(selectedIds, s.destinationUri, s.transferMethod)
             _lastTermuxExportResult.value = res
-            _exportStatusMessage.value = res.exportDirectoryPath
+            _exportStatusMessage.value = "EXPORT_READY"
         }
     }
 
@@ -342,7 +343,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val s = settingsRepo.settingsFlow.first()
             val res = repo.exportTermuxScript(selectedIds, s.destinationUri, TransferMethod.MOVE)
             _lastTermuxExportResult.value = res
-            _exportStatusMessage.value = res.exportDirectoryPath
+            _exportStatusMessage.value = "EXPORT_READY"
         }
     }
 
@@ -351,7 +352,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val s = settingsRepo.settingsFlow.first()
             val res = repo.exportTermuxScript(selectedIds, s.destinationUri, TransferMethod.COPY)
             _lastTermuxExportResult.value = res
-            _exportStatusMessage.value = res.exportDirectoryPath
+            _exportStatusMessage.value = "EXPORT_READY"
         }
     }
 
@@ -360,7 +361,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val s = settingsRepo.settingsFlow.first()
             val res = repo.exportTermuxAll(selectedIds, s.destinationUri, s.transferMethod)
             _lastTermuxExportResult.value = res
-            _exportStatusMessage.value = res.exportDirectoryPath
+            _exportStatusMessage.value = "EXPORT_READY"
         }
     }
 
@@ -368,22 +369,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         launchSafely {
             val file = repo.exportCsv()
             _lastTermuxExportResult.value = ExportBundleResult(file.parent.orEmpty(), mediaItemsState.value.size, 0, listOf(file))
-            _exportStatusMessage.value = file.parent
+            _exportStatusMessage.value = "EXPORT_READY"
         }
     }
 
     fun exportJsonReport() {
         launchSafely {
             val file = repo.exportJson()
-            _exportStatusMessage.value = file.absolutePath
+            _lastTermuxExportResult.value = ExportBundleResult(file.parent.orEmpty(), mediaItemsState.value.size, 0, listOf(file))
+            _exportStatusMessage.value = "EXPORT_READY"
         }
     }
+
+    fun dismissStatusMessage() { _exportStatusMessage.value = null }
 
     private fun launchSafely(block: suspend () -> Unit): Job =
         viewModelScope.launch(Dispatchers.IO) {
             try { block() }
             catch (cancelled: CancellationException) { throw cancelled }
-            catch (error: Exception) { _exportStatusMessage.value = error.message }
+            catch (error: Exception) { _exportStatusMessage.value = "ERROR:" + error.message }
         }
 
     private fun persistUriPermission(uri: Uri, requireWrite: Boolean) {

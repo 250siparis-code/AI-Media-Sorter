@@ -54,7 +54,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        api: [29, 35]
+        include:
+          - api: 29
+            target: default
+            label: '29'
+            page_size: 4096
+          - api: 35
+            target: default
+            label: '35'
+            page_size: 4096
+          - api: 35
+            target: google_apis_ps16k
+            label: '35-16kb'
+            page_size: 16384
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -80,14 +92,14 @@ jobs:
           target: default
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: ./gradlew connectedDebugAndroidTest --stacktrace
+          script: ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.expectedPageSize=${{ matrix.page_size }} --stacktrace
       - name: Capture test logcat
         if: always()
         run: adb logcat -d > android-test-logcat.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: native-test-reports-api-${{ matrix.api }}
+          name: native-test-reports-api-${{ matrix.label }}
           path: |
             app/build/reports/androidTests/
             app/build/outputs/androidTest-results/

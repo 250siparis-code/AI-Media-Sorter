@@ -164,6 +164,7 @@ class VerifiedTransferEngine {
                     initial.first, originalModified, timestamp.actualDestinationLastModifiedMs, timestamp.preserved))
                 currentCoroutineContext().ensureActive()
                 require(source.identityKey() == sourceIdentity && hash(source) == initial) { "Source changed before deletion; original preserved." }
+                require(hash(finalDestination) == initial) { "Destination changed after checkpoint; original preserved." }
                 if (source.delete() && !source.exists()) {
                     retained = false
                     actualMethod = TransferMethod.MOVE
