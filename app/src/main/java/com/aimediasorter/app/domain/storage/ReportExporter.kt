@@ -37,7 +37,7 @@ class ReportExporter(private val context: Context) {
             writer.write(
                 "ID,FileName,Type,Extension,SizeBytes,OriginalLastModifiedMs,ExifCaptureDateMs," +
                 "DetectedCategory,EffectiveCategory,ModelScore,DiagnosticRawSimilarity,TopMargin," +
-                "NeedsManualReview,IsManuallyCorrected,Excluded,TransferStatus,SHA256,TimestampVerified\n"
+                "NeedsManualReview,IsManuallyCorrected,Excluded,TransferStatus,SHA256,TimestampVerified,InferenceEngine\n"
             )
             for (item in mediaItems) {
                 writer.write(
@@ -51,7 +51,7 @@ class ReportExporter(private val context: Context) {
                         (item.exifCaptureDateMs ?: "").toString(),
                         escapeCsv(item.detectedCategoryName),
                         escapeCsv(item.effectiveCategoryName),
-                        "%.4f".format(Locale.US, item.calibratedConfidence),
+                        if (item.inferenceEngine in setOf("GEMINI", "GEMINI_HYBRID_REVIEW")) "" else "%.4f".format(Locale.US, item.calibratedConfidence),
                         "%.4f".format(Locale.US, item.rawSimilarityScore),
                         "%.4f".format(Locale.US, item.topMargin),
                         item.needsManualReview.toString(),
@@ -59,7 +59,8 @@ class ReportExporter(private val context: Context) {
                         item.isExcludedFromTransfer.toString(),
                         item.transferStatus,
                         item.sha256Checksum ?: "",
-                        (item.timestampVerified ?: "").toString()
+                        (item.timestampVerified ?: "").toString(),
+                        escapeCsv(item.inferenceEngine)
                     ).joinToString(",") + "\n"
                 )
             }

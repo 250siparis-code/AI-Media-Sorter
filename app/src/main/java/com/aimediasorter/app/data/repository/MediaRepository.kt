@@ -9,6 +9,7 @@ import com.aimediasorter.app.data.model.*
 import com.aimediasorter.app.data.preferences.AppSettings
 import com.aimediasorter.app.data.preferences.SettingsRepository
 import com.aimediasorter.app.domain.ai.*
+import com.aimediasorter.app.domain.cloud.*
 import com.aimediasorter.app.domain.storage.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -45,6 +46,7 @@ class MediaRepository(private val context: Context) {
     val storageScanner = StorageScanner(context)
     val featureExtractor = VisualFeatureExtractor(context)
     val aiClassifier = OnDeviceAiClassifier(context, featureExtractor)
+    val cloud = CloudAnalysisService(context, featureExtractor)
     val videoAnalyzer = VideoFrameAnalyzer(context, aiClassifier)
     val safeFileMover = SafeFileMover(context, timestampManager, storageScanner)
     val reportExporter = ReportExporter(context)
@@ -85,7 +87,8 @@ class MediaRepository(private val context: Context) {
         .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
     private fun signature(settings: AppSettings, categories: List<CategoryEntity>): String =
         digest("mlkit-image-labeling:17.0.9;diagnostic-onnx-v1;ort:1.22.0;" + settings.hardwareAcceleration + ";" + settings.aiEngineMode.name + ";" +
-            settings.confidenceThreshold + ";" + json.encodeToString(categories.sortedBy { it.id }))
+            settings.confidenceThreshold + ";" + json.encodeToString(categories.sortedBy { it.id }) + ";" + json.encodeToString(settings.cloudOptions) + ";" + CloudProtocol.VERSION + ";" +
+            (if(settings.cloudOptions.mode == AnalysisMode.OFFLINE) 0 else cloud.vault.revision))
 
     private suspend fun checksum(uri: String, filePath: String? = null): String {
         val file = filePath?.let { File(it) } ?: storageScanner.resolveLocalFile(uri)
@@ -140,7 +143,9 @@ class MediaRepository(private val context: Context) {
         }
     }
 
-    suspend fun executeMediaScanAndAnalysis(settings: AppSettings) = withContext(Dispatchers.IO) {
+    suspend fun authorizeCloudBatch(settings: AppSettings): String = cloud.authorize(signature(settings, db.categoryDao().getAllCategories()), settings.cloudOptions)
+
+    suspend fun executeMediaScanAndAnalysis(settings: AppSettings, cloudBatchId: String = "") = withContext(Dispatchers.IO) {
         operationMutex.withLock {
             reconcileLocked()
             ensureDefaultCategories()
@@ -179,7 +184,9 @@ class MediaRepository(private val context: Context) {
                     catch (_: Exception) { failed++ }
                     val fingerprint = digest(candidate.uri.toString() + ";" + sourceChecksum + ";" + configuration)
                     if (sourceChecksum != null && existing != null &&
-                        existing.sourceRootUri == settings.sourceUri && existing.quickFingerprint == fingerprint) {
+                        existing.sourceRootUri == settings.sourceUri && existing.quickFingerprint == fingerprint &&
+                        CloudApproval.shouldReuse(settings.cloudOptions.mode,existing.primarySubjectNote,
+                            existing.analyzedAtMs,existing.isManuallyCorrected)) {
                         val currentModified = timestampManager.resolveFilesystemLastModified(candidate.uri,
                             candidate.filePath, candidate.lastModifiedMs)
                         val timestampChanged = currentModified != existing.originalLastModifiedMs
@@ -198,12 +205,27 @@ class MediaRepository(private val context: Context) {
                         val metadata = timestampManager.inspectMediaMetadata(candidate.uri, candidate.filePath,
                             candidate.isVideo, candidate.lastModifiedMs)
                         var metrics = try {
-                            if (candidate.isVideo) videoAnalyzer.analyzeVideo(candidate.uri, candidate.filePath,
-                                metadata.durationMs, enabled, settings.aiEngineMode, "",
+                            suspend fun offline(): ClassificationScoreMetrics {
+                            val engine = if (settings.cloudOptions.mode == AnalysisMode.HYBRID) AiEngineMode.HYBRID_ONNX_AND_MLKIT else settings.aiEngineMode
+                            return if (candidate.isVideo) videoAnalyzer.analyzeVideo(candidate.uri, candidate.filePath,
+                                metadata.durationMs, enabled, engine, "",
                                 settings.hardwareAcceleration, settings.confidenceThreshold)
                             else aiClassifier.classifyImage(candidate.uri, candidate.filePath, metadata.orientationDegrees,
-                                enabled, settings.aiEngineMode, "", settings.hardwareAcceleration,
+                                enabled, engine, "", settings.hardwareAcceleration,
                                 settings.confidenceThreshold, metadata.isMirrored)
+                            }
+                            if (settings.cloudOptions.mode == AnalysisMode.OFFLINE) offline() else {
+                                val local = if (settings.cloudOptions.mode == AnalysisMode.HYBRID) offline() else null
+                                cloud.analyze(settings, cloudBatchId, configuration, sourceChecksum, enabled,
+                                    candidate.uri, candidate.filePath, candidate.isVideo, metadata.orientationDegrees, metadata.isMirrored, local) {
+                                    val live = settingsRepository.settingsFlow.first()
+                                    if (live.sourceUri != settings.sourceUri || live.cloudOptions != settings.cloudOptions ||
+                                        signature(live, db.categoryDao().getAllCategories()) != configuration)
+                                        throw CloudFailure(CloudErrorKind.CONSENT)
+                                    if (sourceChecksum == null || checksum(candidate.uri.toString(), candidate.filePath) != sourceChecksum)
+                                        throw CloudFailure(CloudErrorKind.CONSENT)
+                                }
+                            }
                         } catch (cancelled: CancellationException) { throw cancelled }
                         catch (error: Exception) {
                             failed++
@@ -302,6 +324,7 @@ class MediaRepository(private val context: Context) {
                         !it.isExcludedFromTransfer && it.transferStatus !in terminal && it.sha256Checksum != null &&
                         categoriesById[it.effectiveCategoryId]?.isEnabled == true &&
                         (it.inferenceEngine != "ONNX_DIAGNOSTIC" || it.isManuallyCorrected) &&
+                        (!CloudApproval.requiresIndividualReview(it.inferenceEngine) || it.isManuallyCorrected) &&
                         (it.isManuallyCorrected || includeReviewFlaggedItems ||
                             !it.needsManualReview && it.calibratedConfidence >= settings.confidenceThreshold)
                     }
@@ -411,7 +434,7 @@ class MediaRepository(private val context: Context) {
             session.analysisSignature != signature(settings, allCategories)
         val checkedItems = items.map { it.copy(needsManualReview = it.needsManualReview || stale ||
             it.sha256Checksum == null || categories[it.effectiveCategoryId]?.isEnabled != true ||
-            it.inferenceEngine == "ONNX_DIAGNOSTIC" && !it.isManuallyCorrected) }
+            (it.inferenceEngine == "ONNX_DIAGNOSTIC" || CloudApproval.requiresIndividualReview(it.inferenceEngine)) && !it.isManuallyCorrected) }
         return termuxExporter.buildExportRecords(checkedItems, categories, destination, method, settings.sourceUri, settings.timestampPolicy)
     }
     suspend fun exportTermuxCsv(ids: Set<Long>, destination: String, method: TransferMethod): ExportBundleResult = withContext(Dispatchers.IO) {

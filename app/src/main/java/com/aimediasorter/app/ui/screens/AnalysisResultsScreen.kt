@@ -420,7 +420,7 @@ private fun MediaResultGridCard(
                     color = PrimaryPurpleLight
                 )
                 Text(
-                    text = stringResource(
+                    text = if (com.aimediasorter.app.domain.cloud.CloudApproval.requiresIndividualReview(item.inferenceEngine)) stringResource(R.string.cloud_score_unavailable) else stringResource(
                         R.string.confidence_calibrated_fmt,
                         (item.calibratedConfidence * 100).toInt()
                     ),

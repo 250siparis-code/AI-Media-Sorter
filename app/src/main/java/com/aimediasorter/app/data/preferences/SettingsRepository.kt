@@ -1,6 +1,9 @@
 package com.aimediasorter.app.data.preferences
 
 import android.content.Context
+import com.aimediasorter.app.domain.cloud.CloudOptions
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.Serializable
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -24,6 +27,7 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 
 @Serializable
 data class AppSettings(
+    val cloudOptions: CloudOptions = CloudOptions(),
     val analysisPaused: Boolean = false,
     val sourceUri: String = "",
     val destinationUri: String = "",
@@ -46,6 +50,7 @@ data class AppSettings(
 class SettingsRepository(private val context: Context) {
 
     private object Keys {
+        val CLOUD_OPTIONS = stringPreferencesKey("cloud_options_v1")
         val ANALYSIS_PAUSED = booleanPreferencesKey("analysis_paused")
         val SOURCE_URI = stringPreferencesKey("source_uri")
         val DESTINATION_URI = stringPreferencesKey("destination_uri")
@@ -67,6 +72,7 @@ class SettingsRepository(private val context: Context) {
 
     val settingsFlow: Flow<AppSettings> = context.dataStore.data.map { prefs ->
         AppSettings(
+            cloudOptions = runCatching { Json.decodeFromString<CloudOptions>(prefs[Keys.CLOUD_OPTIONS] ?: "{}") }.getOrDefault(CloudOptions()),
             analysisPaused = prefs[Keys.ANALYSIS_PAUSED] ?: false,
             sourceUri = prefs[Keys.SOURCE_URI] ?: "",
             destinationUri = prefs[Keys.DESTINATION_URI] ?: "",
@@ -101,6 +107,7 @@ class SettingsRepository(private val context: Context) {
         )
     }
 
+    suspend fun updateCloudOptions(options: CloudOptions) = context.dataStore.edit { options.validate(); it[Keys.CLOUD_OPTIONS] = Json.encodeToString(options) }
     suspend fun updateAnalysisPaused(paused: Boolean) = context.dataStore.edit { it[Keys.ANALYSIS_PAUSED] = paused }
     suspend fun updateSourceUri(uri: String) = context.dataStore.edit { it[Keys.SOURCE_URI] = uri }
     suspend fun updateDestinationUri(uri: String) = context.dataStore.edit { it[Keys.DESTINATION_URI] = uri }
