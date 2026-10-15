@@ -49,6 +49,24 @@ jobs:
         run: |
           python3 scripts/measure_apk.py app/build/outputs/apk/debug/app-debug.apk app/build/reports/current-size.json
           "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" dex packages --defined-only app/build/outputs/apk/debug/app-debug.apk > current-dex-packages.txt
+      - name: Build optimized release APKs for testing only
+        run: |
+          mkdir -p optimized-apks
+          cp app/build/outputs/apk/debug/app-debug.apk optimized-apks/optimized-universal-debug.apk
+          ./gradlew assembleRelease -PqaReleaseSigning=true --stacktrace
+          cp app/build/outputs/apk/release/app-release.apk optimized-apks/optimized-universal-release-QA.apk
+          ./gradlew assembleRelease -PqaReleaseSigning=true -PtargetAbi=arm64-v8a --stacktrace
+          cp app/build/outputs/apk/release/app-release.apk optimized-apks/optimized-arm64-v8a-release-QA.apk
+          for apk in optimized-apks/*.apk; do
+            python3 scripts/measure_apk.py "$apk" "app/build/reports/$(basename "$apk" .apk)-size.json"
+            python3 scripts/inspect_apk.py "$apk"
+          done
+          head -n 35 baseline-dex-packages.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: optimized-APKs-QA-only
+          path: optimized-apks/*.apk
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: AIMediaSorter-debug-apk
@@ -61,7 +79,7 @@ jobs:
           path: |
             app/build/reports/tests/
             app/build/reports/lint-results-debug.*
-            app/build/reports/apk-inspection.json
+            app/build/reports/*-inspection.json
             app/build/reports/*-size.json
             *-dex-packages.txt
   android-device-tests:
@@ -76,14 +94,27 @@ jobs:
             target: default
             label: '34'
             page_size: 4096
+            variant: debug
           - api: 35
             target: default
             label: '35'
             page_size: 4096
+            variant: debug
           - api: 35
             target: google_apis_ps16k
             label: '35-16kb'
             page_size: 16384
+            variant: debug
+          - api: 34
+            target: default
+            label: '34-release'
+            page_size: 4096
+            variant: release
+          - api: 35
+            target: google_apis_ps16k
+            label: '35-16kb-release'
+            page_size: 16384
+            variant: release
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -109,7 +140,12 @@ jobs:
           target: ${{ matrix.target }}
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.expectedPageSize=${{ matrix.page_size }} --stacktrace
+          script: |
+            if [ "${{ matrix.variant }}" = "release" ]; then
+              ./gradlew connectedReleaseAndroidTest -PqaReleaseSigning=true -Pandroid.testInstrumentationRunnerArguments.expectedPageSize=${{ matrix.page_size }} --stacktrace
+            else
+              ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.expectedPageSize=${{ matrix.page_size }} --stacktrace
+            fi
       - name: Capture test logcat
         if: always()
         run: timeout 20s adb logcat -d > android-test-logcat.txt || true

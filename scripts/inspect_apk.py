@@ -53,7 +53,7 @@ report = {"apk": apk.name, "bytes": apk.stat().st_size,
     "permissions": permissions, "min_sdk": 34, "target_sdk": 35, "native_libraries": native}
 directory = pathlib.Path("app/build/reports")
 directory.mkdir(parents=True, exist_ok=True)
-(directory / "apk-inspection.json").write_text(json.dumps(report, indent=2))
+(directory / (apk.stem + "-inspection.json")).write_text(json.dumps(report, indent=2))
 print(json.dumps(report, indent=2))
 
 assert all(lib['supports_16kb_alignment'] for lib in native if '/arm64-v8a/' in lib['path'] or '/x86_64/' in lib['path']), '64-bit native libraries must support 16 KB load alignment'

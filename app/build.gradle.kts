@@ -6,6 +6,10 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+val qaReleaseSigning = providers.gradleProperty("qaReleaseSigning").orNull == "true"
+val selectedAbi = providers.gradleProperty("targetAbi").orNull
+require(selectedAbi == null || selectedAbi in setOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")) { "Unsupported targetAbi" }
+
 android {
     namespace = "com.aimediasorter.app"
     compileSdk = 35
@@ -15,7 +19,8 @@ android {
         minSdk = 34
         targetSdk = 35
         versionCode = 2
-        versionName = "1.0.1-audited"
+        versionName = "1.0.2-android14"
+        if (selectedAbi != null) ndk { abiFilters += selectedAbi }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -24,8 +29,11 @@ android {
         resourceConfigurations += listOf("en", "tr")
     }
 
+    testBuildType = if (qaReleaseSigning) "release" else "debug"
+
     buildTypes {
         release {
+            if (qaReleaseSigning) signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -55,10 +63,13 @@ android {
     }
 
     androidResources {
-        noCompress += listOf("onnx", "tflite", "json")
+        noCompress += listOf("onnx", "tflite", "mobile_ica_8bit_with_metadata_tflite")
     }
 
     packaging {
+        // Smaller downloads, but extracted installed size may increase.
+        jniLibs { useLegacyPackaging = true }
+        dex { useLegacyPackaging = true }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
