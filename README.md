@@ -1,5 +1,7 @@
 # AI Media Sorter
 
+Requires **Android 15 (API 35) or later**.
+
 Native Android application using Kotlin, Jetpack Compose, Material 3, Room and WorkManager. The UI uses an AMOLED black background and purple accents, with English and Turkish resources.
 
 ## Current behavior
@@ -39,12 +41,12 @@ Requirements: JDK 17, Android SDK Platform 35, Build Tools 35.0.0 and the checke
     ./gradlew clean testDebugUnitTest lintDebug assembleDebug
     python3 -m unittest discover -s tests -v
 
-For native instrumentation, install FFmpeg and start an API 29+ emulator or connect a test device:
+For native instrumentation, install FFmpeg and start an API 35+ emulator or connect a test device:
 
     python3 scripts/generate_test_media.py
     ./gradlew connectedDebugAndroidTest
 
-CI runs JVM/Python tests, a clean Android build, lint, APK manifest/signature/alignment inspection, and native tests on API 29 and API 35. Results and debug APKs are downloadable from Actions. A successful build alone does not establish classification accuracy or suitability for a real archive.
+CI runs JVM/Python tests, a clean Android build, lint, APK manifest/signature/alignment inspection, and native tests on Android 15 (API 35), with both 4 KB and 16 KB pages. Results and debug APKs are downloadable from Actions. A successful build alone does not establish classification accuracy or suitability for a real archive.
 
 See [Independent review and fix record](docs/INDEPENDENT_REVIEW.md) for evidence, resolved defects and remaining validation.
 

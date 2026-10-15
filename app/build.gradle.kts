@@ -12,7 +12,7 @@ android {
 
     defaultConfig {
         applicationId = "com.aimediasorter.app"
-        minSdk = 29
+        minSdk = 35
         targetSdk = 35
         versionCode = 2
         versionName = "1.0.1-audited"

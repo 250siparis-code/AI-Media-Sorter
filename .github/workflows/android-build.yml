@@ -57,10 +57,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - api: 29
-            target: default
-            label: '29'
-            page_size: 4096
           - api: 35
             target: default
             label: '35'
