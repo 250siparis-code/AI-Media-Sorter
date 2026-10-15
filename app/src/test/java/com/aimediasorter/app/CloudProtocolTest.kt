@@ -116,4 +116,20 @@ class CloudProtocolTest {
         assertTrue(CloudApproval.requiresIndividualReview("GEMINI_HYBRID_REVIEW"))
         assertFalse(CloudApproval.requiresIndividualReview("GEMINI_HYBRID_AGREEMENT"))
     }
+
+    @Test fun failedCloudRowsCanRetryInANewExplicitBatch() {
+        assertFalse(CloudApproval.shouldReuse(AnalysisMode.GEMINI,"Gemini: Rate or quota limit reached.",1000,false,1001))
+        assertFalse(CloudApproval.shouldReuse(AnalysisMode.HYBRID,"Gemini: Network outcome is uncertain. Offline result retained for review.",1000,false,1001))
+    }
+    @Test fun validCloudRowsRespectSevenDayFreshness() {
+        val note="Gemini: A meal. No calibrated Gemini probability is available."
+        assertTrue(CloudApproval.shouldReuse(AnalysisMode.GEMINI,note,1000,false,1001))
+        assertFalse(CloudApproval.shouldReuse(AnalysisMode.GEMINI,note,1000,false,604_801_001))
+        assertFalse(CloudApproval.shouldReuse(AnalysisMode.GEMINI,note,1000,false,999))
+        assertTrue(CloudApproval.shouldReuse(AnalysisMode.HYBRID,"Gemini selected unknown/ambiguous content.",1000,false,1001))
+    }
+    @Test fun manualDecisionsAndOfflineReuseArePreserved() {
+        assertTrue(CloudApproval.shouldReuse(AnalysisMode.GEMINI,"reviewed by user",1,true,900_000_000))
+        assertTrue(CloudApproval.shouldReuse(AnalysisMode.OFFLINE,"ML Kit",1,false,900_000_000))
+    }
 }

@@ -11,6 +11,17 @@ import kotlinx.coroutines.CancellationException
 import java.security.MessageDigest
 
 object CloudApproval {
+    /** A failed upload must be retryable in a NEW explicitly consented batch.
+     * Same-batch uncertain requests remain blocked by the durable attempt journal.
+     */
+    fun shouldReuse(mode: AnalysisMode,note: String,analyzedAt: Long,manuallyCorrected: Boolean,
+                    now: Long=System.currentTimeMillis()): Boolean {
+        if(mode==AnalysisMode.OFFLINE || manuallyCorrected) return true
+        val age=now-analyzedAt
+        return age in 0..604_800_000L &&
+            (note.contains("No calibrated Gemini probability is available.") ||
+             note.startsWith("Gemini selected unknown/ambiguous content."))
+    }
     fun requiresIndividualReview(engine: String)=engine in setOf("GEMINI","GEMINI_HYBRID_REVIEW")
 }
 class CloudAnalysisService(context: Context,extractor: VisualFeatureExtractor,

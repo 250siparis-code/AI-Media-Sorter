@@ -9,6 +9,7 @@ class ComparisonContractTest(unittest.TestCase):
         def report(engine):
             return {"mediaItems": [{"sha256Checksum": r["sha256"], "detectedCategoryId": "cat_food",
                                    "inferenceEngine": engine, "needsManualReview": True,
+                                   "primarySubjectNote": "Gemini: A meal. No calibrated Gemini probability is available.",
                                    "isManuallyCorrected": False, "isVideo": False} for r in labels]}
         return labels, report("ML_KIT_IMAGE_LABELING"), report("GEMINI")
 
@@ -46,3 +47,21 @@ class ComparisonContractTest(unittest.TestCase):
         cloud["mediaItems"][0]["isManuallyCorrected"] = True
         with self.assertRaises(ValueError):
             compare(labels, offline, cloud)
+
+    def test_api_failure_never_counts_as_a_correct_other_prediction(self):
+        labels, offline, cloud = self.fixtures()
+        labels[0]["category"] = "cat_other"
+        cloud["mediaItems"][0].update(detectedCategoryId="cat_other",
+                                      primarySubjectNote="Gemini: Rate or quota limit reached.")
+        with self.assertRaises(ValueError):
+            compare(labels, offline, cloud)
+
+    def test_abstention_is_reported_and_not_counted_as_correct_other(self):
+        labels, offline, cloud = self.fixtures()
+        labels[0]["category"] = "cat_other"
+        cloud["mediaItems"][0].update(detectedCategoryId="cat_other",
+                                      primarySubjectNote="Gemini selected unknown/ambiguous content.")
+        result = compare(labels, offline, cloud)
+        self.assertEqual(35, result["gemini"]["correct"])
+        self.assertEqual(1, result["gemini"]["abstentions"])
+        self.assertEqual(35, result["compared_predictions"])

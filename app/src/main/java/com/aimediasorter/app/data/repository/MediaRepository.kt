@@ -184,7 +184,9 @@ class MediaRepository(private val context: Context) {
                     catch (_: Exception) { failed++ }
                     val fingerprint = digest(candidate.uri.toString() + ";" + sourceChecksum + ";" + configuration)
                     if (sourceChecksum != null && existing != null &&
-                        existing.sourceRootUri == settings.sourceUri && existing.quickFingerprint == fingerprint) {
+                        existing.sourceRootUri == settings.sourceUri && existing.quickFingerprint == fingerprint &&
+                        CloudApproval.shouldReuse(settings.cloudOptions.mode,existing.primarySubjectNote,
+                            existing.analyzedAtMs,existing.isManuallyCorrected)) {
                         val currentModified = timestampManager.resolveFilesystemLastModified(candidate.uri,
                             candidate.filePath, candidate.lastModifiedMs)
                         val timestampChanged = currentModified != existing.originalLastModifiedMs

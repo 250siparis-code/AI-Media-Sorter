@@ -25,6 +25,7 @@ def compare(labels, offline, gemini):
     cloud = index(gemini["mediaItems"], "sha256Checksum")
     if truth.keys() != local.keys() or truth.keys() != cloud.keys():
         raise ValueError("Exports must contain the same 36 original media hashes")
+    abstained = set()
     for key in truth:
         if not isinstance(truth[key].get("category"), str) or not truth[key]["category"]:
             raise ValueError("A human category ID is required for every image")
@@ -35,20 +36,29 @@ def compare(labels, offline, gemini):
             raise ValueError("Offline export must contain real ML Kit predictions")
         if cloud[key].get("inferenceEngine") != "GEMINI":
             raise ValueError("Cloud export must contain Gemini-only predictions")
+        note = cloud[key].get("primarySubjectNote", "")
+        if note == "Gemini selected unknown/ambiguous content.":
+            abstained.add(key)
+        elif "No calibrated Gemini probability is available." not in note:
+            raise ValueError("Cloud report contains an API/input failure rather than a validated prediction")
     results = {}
     for name, predictions in (("offline_mlkit", local), ("gemini", cloud)):
-        correct = sum(predictions[k]["detectedCategoryId"] == truth[k]["category"] for k in truth)
+        def matched(k):
+            return not (name == "gemini" and k in abstained) and predictions[k]["detectedCategoryId"] == truth[k]["category"]
+        correct = sum(matched(k) for k in truth)
         per_category = collections.defaultdict(lambda: {"total": 0, "correct": 0})
         for k in truth:
             record = per_category[truth[k]["category"]]
             record["total"] += 1
-            record["correct"] += predictions[k]["detectedCategoryId"] == truth[k]["category"]
+            record["correct"] += matched(k)
         results[name] = {
             "correct": correct, "total": 36, "observed_accuracy": correct / 36,
             "requires_review": sum(bool(predictions[k].get("needsManualReview")) for k in truth),
+            "abstentions": len(abstained) if name == "gemini" else 0,
             "per_category": dict(per_category)
         }
-    results["disagreements"] = sum(local[k]["detectedCategoryId"] != cloud[k]["detectedCategoryId"] for k in truth)
+    results["disagreements"] = sum(local[k]["detectedCategoryId"] != cloud[k]["detectedCategoryId"] for k in truth if k not in abstained)
+    results["compared_predictions"] = 36 - len(abstained)
     results["limitations"] = ("Accuracy is the measured exact category match on this labeled collection only, "
                              "not model confidence, calibrated probability or a population estimate. "
                              "Review flags include policy requirements and must not be treated as errors.")
