@@ -27,7 +27,8 @@ fun AnalysisProgressScreen(
     progress: LiveAnalysisProgress,
     onTogglePause: () -> Unit,
     onCancel: () -> Unit,
-    onViewResults: () -> Unit
+    onViewResults: () -> Unit,
+    onExportReport: () -> Unit = {}
 ) {
     val fraction = if (progress.totalFiles > 0) {
         (progress.processedFiles.toFloat() / progress.totalFiles.toFloat()).coerceIn(0f, 1f)
@@ -93,6 +94,9 @@ fun AnalysisProgressScreen(
 
         AnalysisResultSummary(progress.successfulCount,progress.needsReviewCount,progress.failedCount,
             progress.pendingCount+(progress.totalFiles-progress.processedFiles).coerceAtLeast(0),progress.apiRequestsSent)
+        if(!progress.isRunning && progress.processedFiles>0) OutlinedButton(onClick=onExportReport,modifier=Modifier.fillMaxWidth().testTag("progress-export-analysis")) {
+            Text(stringResource(R.string.diagnostics_export_batch))
+        }
         Spacer(Modifier.height(12.dp))
         // Live file & thumbnail card
         Surface(

@@ -1,5 +1,7 @@
 package com.aimediasorter.app.domain.cloud
 
+import com.aimediasorter.app.domain.diagnostics.*
+import kotlinx.coroutines.currentCoroutineContext
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
@@ -21,6 +23,8 @@ class GeminiHttpTransport(private val openConnection: (URL)->HttpURLConnection =
     private suspend fun exchange(path: String, apiKey: String, body: String?,onSent: ()->Unit): CloudHttpResponse {
         require(pathPattern.matches(path))
         require(ApiKeyInput.canSave(apiKey) && apiKey == ApiKeyInput.normalized(apiKey))
+        val diagnostic=currentCoroutineContext()[DiagnosticTraceContext]?.operation
+        diagnostic?.event(DiagnosticStage.TRANSPORT_CONNECT,DiagnosticStatus.STARTED)
         return suspendCancellableCoroutine { continuation ->
             val active=AtomicReference<HttpURLConnection?>()
             val future=executor.submit {
@@ -45,6 +49,7 @@ class GeminiHttpTransport(private val openConnection: (URL)->HttpURLConnection =
                         onSent()
                     }
                     val code=c.responseCode
+                    diagnostic?.event(DiagnosticStage.HTTP_HEADERS,DiagnosticStatus.SUCCEEDED,http=code)
                     val stream=if(code in 200..299) c.inputStream else c.errorStream
                     val data=stream?.use { it.readNBytes(131_073) } ?: byteArrayOf()
                     if(data.size>131_072) throw CloudFailure(CloudErrorKind.RESPONSE,AnalysisCode.RESPONSE_TOO_LARGE)
