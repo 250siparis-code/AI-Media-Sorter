@@ -249,4 +249,8 @@
     <string name="cloud_consent_send">Send this batch</string>
     <string name="cloud_consent_cancel">Cancel</string>
     <string name="cloud_score_unavailable">Gemini: numeric confidence unavailable; review required.</string>
+    <string name="cloud_replace_key">Replace key</string>
+    <string name="cloud_saved_unverified">API key saved securely. Authentication has not been tested.</string>
+    <string name="cloud_deleted">API key deleted.</string>
+    <string name="cloud_connection_ok">Connection successful.</string>
 </resources>

@@ -16,7 +16,7 @@ class GeminiHttpTransport : CloudTransport {
     }
     override suspend fun request(path: String, apiKey: String, body: String?): CloudHttpResponse {
         require(pathPattern.matches(path))
-        require(Regex("[A-Za-z0-9_-]{20,256}").matches(apiKey))
+        require(ApiKeyInput.canSave(apiKey) && apiKey == ApiKeyInput.normalized(apiKey))
         return suspendCancellableCoroutine { continuation ->
             val active=AtomicReference<HttpURLConnection?>()
             val future=executor.submit {

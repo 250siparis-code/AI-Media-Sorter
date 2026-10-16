@@ -16,7 +16,8 @@ import com.aimediasorter.app.domain.cloud.*
 import java.math.BigDecimal
 
 data class CloudUiState(val hasKey: Boolean=false,val models: List<String> = emptyList(),
-    val usage: String="0 / 0 / 0",val busy: Boolean=false,val error: String?=null)
+    val usage: String="0 / 0 / 0",val busy: Boolean=false,val error: String?=null,
+    val message: String?=null,val savedRevision: Int=0)
 
 @Composable fun CloudSettingsCard(o: CloudOptions,state: CloudUiState,onOptions: (CloudOptions)->Unit,
     onSaveKey: (String)->Unit,onClearKey: ()->Unit,onRefreshModels: ()->Unit,onRefreshState: ()->Unit) {
@@ -38,6 +39,7 @@ data class CloudUiState(val hasKey: Boolean=false,val models: List<String> = emp
         onDispose { if(!hadSecure) window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
     }
     LaunchedEffect(Unit) { onRefreshState() }
+    LaunchedEffect(state.savedRevision) { if(state.savedRevision>0) key="" }
     OutlinedCard(modifier=Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.cloud_title),style=MaterialTheme.typography.titleMedium)
@@ -53,7 +55,7 @@ data class CloudUiState(val hasKey: Boolean=false,val models: List<String> = emp
                 visualTransformation=PasswordVisualTransformation(),keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Password),
                 singleLine=true,modifier=Modifier.fillMaxWidth())
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                Button(enabled=Regex("[A-Za-z0-9_-]{20,256}").matches(key),onClick={onSaveKey(key);key=""}) { Text(stringResource(R.string.cloud_save_key)) }
+                Button(enabled=ApiKeyInput.canSave(key)&&!state.busy,onClick={onSaveKey(ApiKeyInput.normalized(key))}) { Text(stringResource(if(state.hasKey) R.string.cloud_replace_key else R.string.cloud_save_key)) }
                 OutlinedButton(enabled=state.hasKey,onClick={key="";onClearKey()}) { Text(stringResource(R.string.cloud_clear_key)) }
             }
             Text(stringResource(if(state.hasKey) R.string.cloud_key_saved else R.string.cloud_key_missing))
@@ -86,6 +88,11 @@ data class CloudUiState(val hasKey: Boolean=false,val models: List<String> = emp
             }) { Text(stringResource(R.string.cloud_save_limits)) }
             if(invalid) Text(stringResource(R.string.cloud_invalid_limits),color=MaterialTheme.colorScheme.error)
             if(state.error!=null) Text(state.error,color=MaterialTheme.colorScheme.error)
+            state.message?.let { Text(stringResource(when(it) {
+                "SAVED"->R.string.cloud_saved_unverified
+                "DELETED"->R.string.cloud_deleted
+                else->R.string.cloud_connection_ok
+            })) }
             Text(stringResource(R.string.cloud_usage,state.usage))
             TextButton(onClick=onRefreshState) { Text(stringResource(R.string.cloud_refresh_usage)) }
         }

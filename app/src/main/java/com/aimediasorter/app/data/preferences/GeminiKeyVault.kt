@@ -1,5 +1,6 @@
 package com.aimediasorter.app.data.preferences
 
+import com.aimediasorter.app.domain.cloud.ApiKeyInput
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -30,7 +31,7 @@ class GeminiKeyVault(context: Context, namespace: String = "user") {
     }
     @Synchronized fun read(): String {
         val bytes=file.readFully()
-        require(bytes.size in 29..1024)
+        require(bytes.size in 29..8192)
         val n=bytes[0].toInt() and 255;require(n==12)
         val cipher=Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE,key(),GCMParameterSpec(128,bytes.copyOfRange(1,n+1)))
@@ -41,10 +42,10 @@ class GeminiKeyVault(context: Context, namespace: String = "user") {
     }
     @Synchronized fun snapshot() = Snapshot(read(),revision)
     @Synchronized fun save(value: String) {
-        require(Regex("[A-Za-z0-9_-]{20,256}").matches(value))
-        if(runCatching { read()==value }.getOrDefault(false)) return
+        val normalized = ApiKeyInput.requireValid(value)
+        if(runCatching { read()==normalized }.getOrDefault(false)) return
         val cipher=Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE,key()) }
-        val data=byteArrayOf(cipher.iv.size.toByte())+cipher.iv+cipher.doFinal(value.toByteArray(Charsets.UTF_8))
+        val data=byteArrayOf(cipher.iv.size.toByte())+cipher.iv+cipher.doFinal(normalized.toByteArray(Charsets.UTF_8))
         val stream=file.startWrite()
         try { stream.write(data);file.finishWrite(stream) } catch(e: Exception) { file.failWrite(stream);throw e }
         check(metadata.edit().putInt("revision",revision+1).commit())

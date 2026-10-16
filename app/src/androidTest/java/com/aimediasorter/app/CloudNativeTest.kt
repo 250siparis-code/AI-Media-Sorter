@@ -30,9 +30,9 @@ class CloudNativeTest {
     @Test fun keystoreEncryptsKeyOutsideBackupsAndClearsIt() {
         val namespace="test-"+UUID.randomUUID()
         val vault=GeminiKeyVault(context,namespace)
-        val secret="SyntheticTestCredential_1234567890"
+        val secret="AQ."+"SyntheticCredential".repeat(32)
         try {
-            vault.save(secret);assertTrue(vault.hasKey());assertEquals(secret,vault.read())
+            vault.save(secret);assertTrue(vault.hasKey());assertEquals(secret,GeminiKeyVault(context,namespace).read())
             val encrypted=File(context.noBackupFilesDir,"gemini-key-"+namespace+".v1").readBytes()
             assertFalse(encrypted.toString(Charsets.ISO_8859_1).contains(secret))
             val revision=vault.revision
