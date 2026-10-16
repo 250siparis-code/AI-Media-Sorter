@@ -216,7 +216,7 @@ fun SourceDestinationScreen(
 
         Button(
             onClick = onContinue,
-            enabled = settings.sourceUri.isNotBlank() && settings.destinationUri.isNotBlank() && !hasLoopError,
+            enabled = settings.sourceUri.isNotBlank(),
             modifier = Modifier
                 .fillMaxWidth()
                 .height(54.dp),

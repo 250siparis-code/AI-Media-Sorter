@@ -20,6 +20,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import java.util.zip.ZipEntry
@@ -27,6 +29,9 @@ import java.util.zip.ZipOutputStream
 import androidx.documentfile.provider.DocumentFile
 
 import com.aimediasorter.app.AIMediaSorterApp
+import com.aimediasorter.app.data.local.MediaCategoryLink
+import com.aimediasorter.app.data.local.PhysicalPlanEntity
+import com.aimediasorter.app.data.repository.OperationPreview
 import com.aimediasorter.app.data.local.AnalysisSessionEntity
 import com.aimediasorter.app.data.local.CategoryEntity
 import com.aimediasorter.app.data.local.MediaItemEntity
@@ -75,6 +80,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         emptyList()
     )
 
+    val galleryLinksState = repo.galleryLinksFlow.stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyList())
+    val physicalPlansState = repo.physicalPlansFlow.stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyList())
+    private val _operationPreview=MutableStateFlow<OperationPreview?>(null)
+    val operationPreview=_operationPreview.asStateFlow()
+    private var consentIds: Set<Long> = emptySet()
+    private var consentForce=false
+    fun updateVirtualCategories(ids: Set<Long>,categories: Set<String>,defer: Boolean) { launchSafely {
+        repo.updateVirtualCategories(ids,categories,defer)
+    } }
+    fun requestReanalysis(ids: Set<Long>) {
+        if(ids.isEmpty() || ids.size>100 || analysisProgress.value.isRunning) return
+        consentIds=ids.toSet();consentForce=true;_cloudConsent.value=true
+    }
+    fun requestOperationPreview(ids: Set<Long>,method: TransferMethod,moveTargets: Map<Long,String>) { launchSafely {
+        require(!analysisProgress.value.isRunning) { "Finish or cancel analysis before physical organization." }
+        require(!transferProgress.value.isRunning) { "Wait for the running operation." }
+        _operationPreview.value=repo.previewOperations(ids,method,moveTargets)
+    } }
+    fun dismissOperationPreview() { _operationPreview.value=null }
+    fun confirmOperationPreview() {
+        val preview=_operationPreview.value ?: return
+        _operationPreview.value=null
+        activeTransferJob=launchSafely {
+            require(workManager.getWorkInfosForUniqueWorkFlow(MediaTransferWorker.WORK_NAME).first().none { !it.state.isFinished })
+            // This call is reachable only from the unchecked-by-default physical confirmation dialog.
+            settingsRepo.updateOperationMode(OperationMode.MOVE_FILES)
+            val current=settingsRepo.settingsFlow.first()
+            val ids=repo.approveOperationPreview(preview)
+            val work=OneTimeWorkRequestBuilder<MediaTransferWorker>().setInputData(workDataOf(
+                MediaAnalysisWorker.SETTINGS_JSON to Json.encodeToString(current),"physical_plan_ids" to ids.toTypedArray())).build()
+            workManager.enqueueUniqueWork(MediaTransferWorker.WORK_NAME,ExistingWorkPolicy.KEEP,work)
+        }
+    }
+
     val transferLogsState: StateFlow<List<TransferLogEntity>> = repo.transferLogsFlow.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
@@ -103,51 +142,84 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
 
+    private val cloudSettingsMutex=Mutex()
+    private fun launchCloud(block: suspend ()->Unit)=launchSafely { cloudSettingsMutex.withLock { block() } }
+
     private val _cloudConsent = MutableStateFlow(false)
     val cloudConsent = _cloudConsent.asStateFlow()
     private val _cloudUi = MutableStateFlow(CloudUiState())
     val cloudUi = _cloudUi.asStateFlow()
-    fun refreshCloudLocalState() { launchSafely {
+    fun refreshCloudLocalState() { launchCloud {
         _cloudUi.value = _cloudUi.value.copy(hasKey=repo.cloud.vault.hasKey(),
-            models=repo.cloud.state.models(repo.cloud.vault.revision), usage=repo.cloud.state.usage())
+            models=repo.cloud.state.models(repo.cloud.vault.revision), usage=repo.cloud.state.usage(),
+            modelVerified=repo.cloud.state.modelVerified(repo.cloud.vault.revision,settingsRepo.settingsFlow.first().cloudOptions.model))
     } }
-    fun setCloudOptions(options: CloudOptions) { launchSafely {
+    fun setCloudOptions(options: CloudOptions) { launchCloud {
         options.validate()
         repo.cloud.state.revokeAll()
         workManager.cancelUniqueWork(MediaAnalysisWorker.WORK_NAME)
-        settingsRepo.updateCloudOptions(options)
+        settingsRepo.updateCloudOptions(options.copy(mode=AnalysisMode.GEMINI))
+        _cloudUi.value=_cloudUi.value.copy(message="MODEL_SAVED",failure=null,error=null,
+            modelVerified=repo.cloud.state.modelVerified(repo.cloud.vault.revision,options.model))
     } }
-    fun saveGeminiKey(value: String) { launchSafely {
-        workManager.cancelUniqueWork(MediaAnalysisWorker.WORK_NAME)
-        repo.cloud.state.revokeAll()
-        repo.cloud.vault.save(value)
-        refreshCloudLocalState()
+    fun saveGeminiKey(value: String) { launchCloud {
+        if (_cloudUi.value.busy) return@launchCloud
+        _cloudUi.value=_cloudUi.value.copy(busy=true,error=null,message=null,failure=null)
+        try {
+            workManager.cancelUniqueWork(MediaAnalysisWorker.WORK_NAME)
+            repo.cloud.state.revokeAll()
+            repo.cloud.vault.save(value)
+            check(repo.cloud.vault.read()==ApiKeyInput.normalized(value))
+            _cloudUi.value=_cloudUi.value.copy(hasKey=true,models=repo.cloud.state.models(repo.cloud.vault.revision),
+                modelVerified=false,message="SAVED",savedRevision=_cloudUi.value.savedRevision+1)
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { _cloudUi.value=_cloudUi.value.copy(error="SAVE") }
+        finally { _cloudUi.value=_cloudUi.value.copy(busy=false) }
     } }
-    fun clearGeminiKey() { launchSafely {
-        workManager.cancelUniqueWork(MediaAnalysisWorker.WORK_NAME)
-        repo.cloud.state.revokeAll();repo.cloud.vault.clear();refreshCloudLocalState()
+    fun clearGeminiKey() { launchCloud {
+        if (_cloudUi.value.busy) return@launchCloud
+        _cloudUi.value=_cloudUi.value.copy(busy=true,error=null,message=null,failure=null)
+        try {
+            workManager.cancelUniqueWork(MediaAnalysisWorker.WORK_NAME)
+            repo.cloud.state.revokeAll();repo.cloud.vault.clear()
+            _cloudUi.value=_cloudUi.value.copy(hasKey=false,models=emptyList(),modelVerified=false,message="DELETED")
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { _cloudUi.value=_cloudUi.value.copy(error="DELETE") }
+        finally { _cloudUi.value=_cloudUi.value.copy(busy=false) }
     } }
-    fun refreshGeminiModels() { launchSafely {
-        _cloudUi.value = _cloudUi.value.copy(busy=true,error=null)
+    fun refreshGeminiModels() { launchCloud {
+        _cloudUi.value = _cloudUi.value.copy(busy=true,error=null,message=null,failure=null)
         try {
             val models=repo.cloud.refreshModels()
-            _cloudUi.value = _cloudUi.value.copy(models=models,hasKey=true)
+            _cloudUi.value = _cloudUi.value.copy(models=models,hasKey=true,message=if(models.isEmpty()) null else "CONNECTED",failure=if(models.isEmpty()) CloudErrorKind.MODEL else null)
         } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-        catch (known: CloudFailure) { _cloudUi.value=_cloudUi.value.copy(error=known.message) }
-        catch (_: Exception) { _cloudUi.value=_cloudUi.value.copy(error="Gemini model catalog could not be verified.") }
+        catch (known: CloudFailure) { _cloudUi.value=_cloudUi.value.copy(failure=known.kind) }
+        catch (_: Exception) { _cloudUi.value=_cloudUi.value.copy(failure=CloudErrorKind.RESPONSE) }
+        finally { _cloudUi.value=_cloudUi.value.copy(busy=false) }
+    } }
+    fun testGeminiModel() { launchCloud {
+        if(_cloudUi.value.busy) return@launchCloud
+        _cloudUi.value=_cloudUi.value.copy(busy=true,error=null,failure=null,message=null,modelVerified=false)
+        try {
+            repo.cloud.testSelectedModel(settingsRepo.settingsFlow.first().cloudOptions)
+            _cloudUi.value=_cloudUi.value.copy(message="MODEL_OK",usage=repo.cloud.state.usage(),modelVerified=true)
+        } catch(cancelled: CancellationException) { throw cancelled }
+        catch(error: CloudFailure) { _cloudUi.value=_cloudUi.value.copy(failure=error.kind) }
+        catch(_: Exception) { _cloudUi.value=_cloudUi.value.copy(failure=CloudErrorKind.RESPONSE) }
         finally { _cloudUi.value=_cloudUi.value.copy(busy=false) }
     } }
     fun dismissCloudConsent() { _cloudConsent.value=false }
     fun approveCloudBatch() { launchSafely {
         val settings=settingsRepo.settingsFlow.first()
-        val batch=repo.authorizeCloudBatch(settings)
+        val ids=consentIds.toSet();val force=consentForce
+        val batch=repo.authorizeCloudBatch(settings,ids,force)
         _cloudConsent.value=false
-        enqueueAnalysis(settings,batch)
+        enqueueAnalysis(settings,batch,ids,force)
     } }
-    private fun enqueueAnalysis(settings: AppSettings,batch: String = "") {
+    private fun enqueueAnalysis(settings: AppSettings,batch: String = "",ids: Set<Long> = emptySet(),force: Boolean=false) {
         val work=OneTimeWorkRequestBuilder<MediaAnalysisWorker>()
             .setInputData(workDataOf(MediaAnalysisWorker.SETTINGS_JSON to Json.encodeToString(settings),
-                "cloud_batch_id" to batch)).build()
+                "cloud_batch_id" to batch,"selected_media_ids" to ids.toLongArray(),"force_reanalysis" to force)).build()
         workManager.enqueueUniqueWork(MediaAnalysisWorker.WORK_NAME,ExistingWorkPolicy.KEEP,work)
     }
 
@@ -174,6 +246,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 persistUriPermission(uri, false)
                 workManager.cancelUniqueWork(MediaAnalysisWorker.WORK_NAME)
                 workManager.cancelUniqueWork(MediaTransferWorker.WORK_NAME)
+                repo.cancelPhysicalPlans()
                 settingsRepo.updateSourceUri(uri.toString())
             } catch (error: Exception) {
                 _exportStatusMessage.value = "ERROR:" + error.message
@@ -186,6 +259,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 persistUriPermission(uri, true)
                 workManager.cancelUniqueWork(MediaTransferWorker.WORK_NAME)
+                repo.cancelPhysicalPlans()
                 settingsRepo.updateDestinationUri(uri.toString())
             } catch (error: Exception) {
                 _exportStatusMessage.value = "ERROR:" + error.message
@@ -212,7 +286,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setOperationMode(mode: OperationMode) {
         launchSafely {
             settingsRepo.updateOperationMode(mode)
-            if (mode == OperationMode.ANALYSIS_ONLY) workManager.cancelUniqueWork(MediaTransferWorker.WORK_NAME)
+            if (mode == OperationMode.ANALYSIS_ONLY) { workManager.cancelUniqueWork(MediaTransferWorker.WORK_NAME);repo.cancelPhysicalPlans() }
         }
     }
 
@@ -305,8 +379,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         activeAnalysisJob = launchSafely {
             repo.setAnalysisPaused(false)
             val settings = settingsRepo.settingsFlow.first()
-            if(settings.cloudOptions.mode != AnalysisMode.OFFLINE) _cloudConsent.value=true
-            else enqueueAnalysis(settings)
+            consentIds=emptySet();consentForce=false
+            _cloudConsent.value=true
         }
     }
 
@@ -349,6 +423,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun cancelTransfers() {
         workManager.cancelUniqueWork(MediaTransferWorker.WORK_NAME)
+        launchSafely { repo.cancelPhysicalPlans() }
     }
 
     fun saveLastExport(uri: Uri) {

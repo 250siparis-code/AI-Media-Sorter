@@ -11,15 +11,32 @@ import java.time.ZoneOffset
 import java.util.UUID
 
 /** Isolated feature DB; never changes transfer Room schema or records. */
-class CloudStateStore(context: Context, databaseName: String = "gemini_private_state.db") : SQLiteOpenHelper(context,databaseName,null,1) {
+class CloudStateStore(context: Context, databaseName: String = "gemini_private_state.db") : SQLiteOpenHelper(context,databaseName,null,2) {
     override fun onCreate(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE pacing (id INTEGER NOT NULL PRIMARY KEY,nextAt INTEGER NOT NULL)")
+        db.execSQL("CREATE TABLE verified_models (revision INTEGER NOT NULL,name TEXT NOT NULL,updated INTEGER NOT NULL,PRIMARY KEY(revision,name))")
         db.execSQL("CREATE TABLE cache (id TEXT PRIMARY KEY NOT NULL,result TEXT NOT NULL,updated INTEGER NOT NULL)")
         db.execSQL("CREATE TABLE models (revision INTEGER NOT NULL,name TEXT NOT NULL,PRIMARY KEY(revision,name))")
         db.execSQL("CREATE TABLE grants (id TEXT PRIMARY KEY NOT NULL,signature TEXT NOT NULL,revision INTEGER NOT NULL,expires INTEGER NOT NULL,used INTEGER NOT NULL,spent INTEGER NOT NULL,maxRequests INTEGER NOT NULL,dailyLimit INTEGER NOT NULL,perAttempt INTEGER NOT NULL,maxCost INTEGER NOT NULL)")
         db.execSQL("CREATE TABLE daily (day TEXT PRIMARY KEY NOT NULL,used INTEGER NOT NULL,inputTokens INTEGER NOT NULL,outputTokens INTEGER NOT NULL)")
         db.execSQL("CREATE TABLE attempts (id TEXT PRIMARY KEY NOT NULL,error TEXT NOT NULL)")
     }
-    override fun onUpgrade(db: SQLiteDatabase,old: Int,new: Int) { error("Explicit cloud-state migration required.") }
+    override fun onUpgrade(db: SQLiteDatabase,old: Int,new: Int) {
+        if(old==1 && new==2) {
+            db.execSQL("CREATE TABLE pacing (id INTEGER NOT NULL PRIMARY KEY,nextAt INTEGER NOT NULL)")
+            db.execSQL("CREATE TABLE verified_models (revision INTEGER NOT NULL,name TEXT NOT NULL,updated INTEGER NOT NULL,PRIMARY KEY(revision,name))")
+        }
+        else error("Explicit cloud-state migration required.")
+    }
+    fun unverifyModel(revision: Int,name: String) { writableDatabase.delete("verified_models","revision=? AND name=?",arrayOf(revision.toString(),name)) }
+    fun markModelVerified(revision: Int,name: String) {
+        writableDatabase.insertWithOnConflict("verified_models",null,ContentValues().apply {
+            put("revision",revision);put("name",name);put("updated",System.currentTimeMillis())
+        },SQLiteDatabase.CONFLICT_REPLACE)
+    }
+    fun modelVerified(revision: Int,name: String): Boolean=readableDatabase.rawQuery(
+        "SELECT 1 FROM verified_models WHERE revision=? AND name=? AND updated>?",
+        arrayOf(revision.toString(),name,(System.currentTimeMillis()-604_800_000).toString())).use { it.moveToFirst() }
     @Synchronized fun replaceModels(revision: Int,names: List<String>) {
         val db=writableDatabase;db.beginTransaction()
         try {
@@ -44,8 +61,18 @@ class CloudStateStore(context: Context, databaseName: String = "gemini_private_s
         return id
     }
     fun revokeAll() { writableDatabase.delete("grants",null,null) }
+    fun checkAvailable(batch: String,signature: String,revision: Int) {
+        readableDatabase.rawQuery("SELECT signature,revision,expires,used,spent,maxRequests,dailyLimit,perAttempt,maxCost FROM grants WHERE id=?",arrayOf(batch)).use { c ->
+            if(!c.moveToFirst() || c.getString(0)!=signature || c.getInt(1)!=revision || c.getLong(2)<System.currentTimeMillis())
+                throw CloudFailure(CloudErrorKind.CONSENT)
+            val used=readableDatabase.rawQuery("SELECT used FROM daily WHERE day=?",arrayOf(day())).use { if(it.moveToFirst()) it.getInt(0) else 0 }
+            if(c.getInt(3)>=c.getInt(5) || used>=c.getInt(6) || c.getLong(4)+c.getLong(7)>c.getLong(8))
+                throw CloudFailure(CloudErrorKind.BUDGET)
+        }
+    }
     private fun day()=LocalDate.now(ZoneOffset.UTC).toString()
-    @Synchronized fun reserve(batch: String,signature: String,revision: Int) {
+    @Synchronized fun reserve(batch: String,signature: String,revision: Int,minimumIntervalMs: Long=0): Long {
+        var waitMs=0L
         val db=writableDatabase;db.beginTransaction()
         try {
             val today=day()
@@ -59,8 +86,16 @@ class CloudStateStore(context: Context, databaseName: String = "gemini_private_s
                 db.execSQL("UPDATE grants SET used=used+1,spent=spent+perAttempt WHERE id=?",arrayOf(batch))
                 db.execSQL("UPDATE daily SET used=used+1 WHERE day=?",arrayOf(today))
             }
+            if(minimumIntervalMs>0) {
+                val now=System.currentTimeMillis()
+                val next=db.rawQuery("SELECT nextAt FROM pacing WHERE id=1",null).use { if(it.moveToFirst()) it.getLong(0) else now }
+                val slot=maxOf(now,minOf(next,now+120_000))
+                waitMs=slot-now
+                db.execSQL("INSERT OR REPLACE INTO pacing VALUES (1,?)",arrayOf(slot+minimumIntervalMs))
+            }
             db.setTransactionSuccessful()
         } finally { db.endTransaction() }
+        return waitMs
     }
     fun cached(id: String): CloudDecision? = readableDatabase.rawQuery("SELECT result FROM cache WHERE id=? AND updated>?",arrayOf(id,(System.currentTimeMillis()-604_800_000).toString())).use { c ->
         if(!c.moveToFirst()) null else runCatching { Json.decodeFromString<CloudDecision>(c.getString(0)) }.getOrNull()
@@ -87,6 +122,9 @@ class CloudStateStore(context: Context, databaseName: String = "gemini_private_s
             db.execSQL("DELETE FROM cache WHERE id NOT IN (SELECT id FROM cache ORDER BY updated DESC LIMIT 10000)")
             db.setTransactionSuccessful()
         } finally { db.endTransaction() }
+    }
+    fun recordUsage(response: CloudResponse) {
+        writableDatabase.execSQL("UPDATE daily SET inputTokens=inputTokens+?,outputTokens=outputTokens+? WHERE day=?",arrayOf(response.inputTokens,response.outputTokens,day()))
     }
     fun usage(): String = readableDatabase.rawQuery("SELECT used,inputTokens,outputTokens FROM daily WHERE day=?",arrayOf(day())).use { c ->
         if(!c.moveToFirst()) "0 / 0 / 0" else c.getInt(0).toString()+" / "+c.getLong(1)+" / "+c.getLong(2)

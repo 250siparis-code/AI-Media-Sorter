@@ -18,8 +18,8 @@ android {
         applicationId = "com.aimediasorter.app"
         minSdk = 34
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.0.2-android14"
+        versionCode = 3
+        versionName = "1.1.0-gemini-gallery"
         ndk { abiFilters += selectedAbi }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -120,5 +120,7 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation(libs.androidx.ui.tooling)
 }

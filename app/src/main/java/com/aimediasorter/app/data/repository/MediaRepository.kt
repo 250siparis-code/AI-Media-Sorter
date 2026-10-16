@@ -21,6 +21,8 @@ import java.io.File
 import java.security.MessageDigest
 import java.util.UUID
 
+data class OperationPreview(val settings: AppSettings,val steps: List<PhysicalPlanEntity>,val names: Map<Long,String>)
+
 data class LiveAnalysisProgress(
     val isRunning: Boolean = false, val isPaused: Boolean = false,
     val totalFiles: Int = 0, val processedFiles: Int = 0,
@@ -38,16 +40,14 @@ data class LiveTransferProgress(
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class MediaRepository(private val context: Context) {
-    private val db = AppDatabase.getInstance(context)
+class MediaRepository(private val context: Context, database: AppDatabase?=null,
+    settings: SettingsRepository?=null,cloudService: CloudAnalysisService?=null) {
+    private val db = database ?: AppDatabase.getInstance(context)
     private val operationMutex = Mutex()
-    val settingsRepository = SettingsRepository(context)
+    val settingsRepository = settings ?: SettingsRepository(context)
     val timestampManager = ExifAndTimestampManager(context)
     val storageScanner = StorageScanner(context)
-    val featureExtractor = VisualFeatureExtractor(context)
-    val aiClassifier = OnDeviceAiClassifier(context, featureExtractor)
-    val cloud = CloudAnalysisService(context, featureExtractor)
-    val videoAnalyzer = VideoFrameAnalyzer(context, aiClassifier)
+    val cloud = cloudService ?: CloudAnalysisService(context)
     val safeFileMover = SafeFileMover(context, timestampManager, storageScanner)
     val reportExporter = ReportExporter(context)
     val termuxExporter = TermuxOperationExporter(context)
@@ -57,6 +57,9 @@ class MediaRepository(private val context: Context) {
     val analysisProgress: StateFlow<LiveAnalysisProgress> = _analysisProgress.asStateFlow()
     private val _transferProgress = MutableStateFlow(LiveTransferProgress())
     val transferProgress: StateFlow<LiveTransferProgress> = _transferProgress.asStateFlow()
+    val galleryLinksFlow: Flow<List<MediaCategoryLink>> = settingsRepository.settingsFlow
+        .map { it.sourceUri }.distinctUntilChanged().flatMapLatest { db.virtualGalleryDao().observeLinks(it) }
+    val physicalPlansFlow = db.virtualGalleryDao().observePlans()
     val categoriesFlow = db.categoryDao().observeAllCategories()
     val mediaItemsFlow: Flow<List<MediaItemEntity>> = settingsRepository.settingsFlow
         .map { it.sourceUri }.distinctUntilChanged().flatMapLatest { db.mediaItemDao().observeCurrentMediaItems(it) }
@@ -68,12 +71,47 @@ class MediaRepository(private val context: Context) {
         SafeRelativePath.segments(category.destinationSubfolder)
         db.categoryDao().upsertCategory(category)
     }
-    suspend fun deleteCustomCategory(categoryId: String) = db.categoryDao().deleteCustomCategory(categoryId)
-    suspend fun reassignMediaCategory(itemId: Long, newCategory: CategoryEntity) {
-        val item = db.mediaItemDao().getMediaItemById(itemId) ?: return
-        require(item.sourceRootUri == settingsRepository.settingsFlow.first().sourceUri) { "Item belongs to another source." }
-        db.mediaItemDao().updateManualCategory(itemId, newCategory.id, newCategory.name,
-            newCategory.destinationSubfolder + "/" + item.fileName)
+    suspend fun deleteCustomCategory(categoryId: String) {
+        operationMutex.withLock {
+            db.withTransaction {
+                if(db.categoryDao().getAllCategories().firstOrNull { it.id==categoryId }?.isDefault!=false) return@withTransaction
+                for(id in db.virtualGalleryDao().affectedMedia(categoryId)) {
+                    val item=db.mediaItemDao().getMediaItemById(id) ?: continue
+                    db.mediaItemDao().updateMediaItem(item.copy(needsManualReview=true,isManuallyCorrected=false,
+                        analysisStatus="NEEDS_REVIEW",effectiveCategoryId="__review__",effectiveCategoryName="Needs Review",
+                        decisionVersion=item.decisionVersion+1))
+                }
+                db.categoryDao().deleteCustomCategory(categoryId)
+            }
+        }
+    }
+    suspend fun reassignMediaCategory(itemId: Long, newCategory: CategoryEntity) =
+        updateVirtualCategories(setOf(itemId),setOf(newCategory.id),false)
+
+    /** Stage B: transactionally changes database references only. */
+    suspend fun updateVirtualCategories(ids: Set<Long>,categoryIds: Set<String>,defer: Boolean) {
+        operationMutex.withLock {
+            val settings=settingsRepository.settingsFlow.first()
+            val cats=db.categoryDao().getAllCategories().associateBy { it.id }
+            require(categoryIds.all { cats[it]?.isEnabled==true })
+            require(defer || categoryIds.isNotEmpty()) { "Select a category or defer review." }
+            db.withTransaction {
+                for(id in ids) {
+                    val item=db.mediaItemDao().getMediaItemById(id) ?: continue
+                    require(item.sourceRootUri==settings.sourceUri)
+                    require(item.transferStatus!=TransferItemStatus.IN_PROGRESS.name)
+                    val one=categoryIds.singleOrNull()?.let { cats[it] }
+                    db.virtualGalleryDao().clearLinks(id,"EFFECTIVE")
+                    db.virtualGalleryDao().insertLinks(categoryIds.map { MediaCategoryLink(id,it,"EFFECTIVE") })
+                    db.mediaItemDao().updateMediaItem(item.copy(
+                        effectiveCategoryId=one?.id ?: "__review__",effectiveCategoryName=one?.name ?: "Multiple categories",
+                        isManuallyCorrected=!defer,needsManualReview=defer || item.sha256Checksum==null,
+                        analysisStatus=if(defer || item.sha256Checksum==null) "NEEDS_REVIEW" else "APPROVED",
+                        decisionVersion=item.decisionVersion+1,
+                        proposedRelativePath=one?.destinationSubfolder?.plus("/"+item.fileName).orEmpty()))
+                }
+            }
+        }
     }
     suspend fun setExcludeFromTransfer(itemId: Long, excluded: Boolean) = db.mediaItemDao().updateExcludedState(itemId, excluded)
     suspend fun setAnalysisPaused(paused: Boolean) {
@@ -86,9 +124,11 @@ class MediaRepository(private val context: Context) {
     private fun digest(value: String): String = MessageDigest.getInstance("SHA-256")
         .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
     private fun signature(settings: AppSettings, categories: List<CategoryEntity>): String =
-        digest("mlkit-image-labeling:17.0.9;diagnostic-onnx-v1;ort:1.22.0;" + settings.hardwareAcceleration + ";" + settings.aiEngineMode.name + ";" +
-            settings.confidenceThreshold + ";" + json.encodeToString(categories.sortedBy { it.id }) + ";" + json.encodeToString(settings.cloudOptions) + ";" + CloudProtocol.VERSION + ";" +
-            (if(settings.cloudOptions.mode == AnalysisMode.OFFLINE) 0 else cloud.vault.revision))
+        digest(CloudProtocol.VERSION + ";" + settings.sourceUri + ";" + settings.includeSubfolders + ";" +
+            settings.mediaTypeFilter.name + ";" + settings.enabledExtensions.sorted().joinToString(",") + ";" +
+            json.encodeToString(categories.sortedBy { it.id }) + ";" +
+            json.encodeToString(settings.cloudOptions.copy(mode=AnalysisMode.GEMINI)) + ";" + cloud.vault.revision)
+
 
     private suspend fun checksum(uri: String, filePath: String? = null): String {
         val file = filePath?.let { File(it) } ?: storageScanner.resolveLocalFile(uri)
@@ -113,6 +153,7 @@ class MediaRepository(private val context: Context) {
 
     /** Recovery never deletes a source or resumes a pending deletion automatically. */
     private suspend fun reconcileLocked() {
+        db.virtualGalleryDao().recoverRunningPlans()
         for (journal in db.transferJournalDao().unfinished()) {
             val item = db.mediaItemDao().getMediaItemById(journal.itemId)
             val verified = journal.destinationUri != null && journal.checksum != null &&
@@ -143,9 +184,13 @@ class MediaRepository(private val context: Context) {
         }
     }
 
-    suspend fun authorizeCloudBatch(settings: AppSettings): String = cloud.authorize(signature(settings, db.categoryDao().getAllCategories()), settings.cloudOptions)
+    private fun scope(ids: Set<Long>,force: Boolean)=digest(ids.sorted().joinToString(",")+";force="+force)
+    suspend fun authorizeCloudBatch(settings: AppSettings,ids: Set<Long> = emptySet(),force: Boolean=false): String {
+        require(ids.size<=100)
+        return cloud.authorize(signature(settings,db.categoryDao().getAllCategories())+";scope="+scope(ids,force),settings.cloudOptions)
+    }
 
-    suspend fun executeMediaScanAndAnalysis(settings: AppSettings, cloudBatchId: String = "") = withContext(Dispatchers.IO) {
+    suspend fun executeMediaScanAndAnalysis(settings: AppSettings, cloudBatchId: String = "", selectedIds: Set<Long> = emptySet(), forceReanalysis: Boolean = false) = withContext(Dispatchers.IO) {
         operationMutex.withLock {
             reconcileLocked()
             ensureDefaultCategories()
@@ -159,12 +204,13 @@ class MediaRepository(private val context: Context) {
             )
             db.analysisSessionDao().upsertSession(session)
             _analysisProgress.value = LiveAnalysisProgress(isRunning = true, isDiscovering = true)
+            var classified = 0
             var processed = 0
             var skipped = 0
             var uncertain = 0
             var failed = 0
             try {
-                storageScanner.scanCandidates(settings.sourceUri, settings.destinationUri,
+                storageScanner.scanCandidates(settings.sourceUri, "",
                     settings.includeSubfolders, settings.mediaTypeFilter, settings.enabledExtensions) {
                     count -> _analysisProgress.update { it.copy(totalFiles = count) }
                 }.collect { candidate ->
@@ -174,16 +220,20 @@ class MediaRepository(private val context: Context) {
                         currentCoroutineContext().ensureActive()
                         delay(250)
                     }
-                    _analysisProgress.update { it.copy(isPaused = false, currentFileName = candidate.fileName,
+                    _analysisProgress.update { it.copy(isPaused = false, isDiscovering = false, currentFileName = candidate.fileName,
                         currentPreviewUri = candidate.uri.toString()) }
                     val existing = db.mediaItemDao().getByUri(candidate.uri.toString())
+                    if(selectedIds.isNotEmpty() && existing?.id !in selectedIds) {
+                        if(existing!=null) db.mediaItemDao().updateMediaItem(existing.copy(scanSessionId=session.sessionId))
+                        return@collect
+                    }
                     var sourceChecksum: String? = null
                     try {
                         sourceChecksum = checksum(candidate.uri.toString(), candidate.filePath)
                     } catch (cancelled: CancellationException) { throw cancelled }
-                    catch (_: Exception) { failed++ }
+                    catch (_: Exception) { /* Original-byte failure is recorded once as an analysis failure below. */ }
                     val fingerprint = digest(candidate.uri.toString() + ";" + sourceChecksum + ";" + configuration)
-                    if (sourceChecksum != null && existing != null &&
+                    if (!forceReanalysis && sourceChecksum != null && existing != null &&
                         existing.sourceRootUri == settings.sourceUri && existing.quickFingerprint == fingerprint &&
                         CloudApproval.shouldReuse(settings.cloudOptions.mode,existing.primarySubjectNote,
                             existing.analyzedAtMs,existing.isManuallyCorrected)) {
@@ -205,32 +255,21 @@ class MediaRepository(private val context: Context) {
                         val metadata = timestampManager.inspectMediaMetadata(candidate.uri, candidate.filePath,
                             candidate.isVideo, candidate.lastModifiedMs)
                         var metrics = try {
-                            suspend fun offline(): ClassificationScoreMetrics {
-                            val engine = if (settings.cloudOptions.mode == AnalysisMode.HYBRID) AiEngineMode.HYBRID_ONNX_AND_MLKIT else settings.aiEngineMode
-                            return if (candidate.isVideo) videoAnalyzer.analyzeVideo(candidate.uri, candidate.filePath,
-                                metadata.durationMs, enabled, engine, "",
-                                settings.hardwareAcceleration, settings.confidenceThreshold)
-                            else aiClassifier.classifyImage(candidate.uri, candidate.filePath, metadata.orientationDegrees,
-                                enabled, engine, "", settings.hardwareAcceleration,
-                                settings.confidenceThreshold, metadata.isMirrored)
-                            }
-                            if (settings.cloudOptions.mode == AnalysisMode.OFFLINE) offline() else {
-                                val local = if (settings.cloudOptions.mode == AnalysisMode.HYBRID) offline() else null
-                                cloud.analyze(settings, cloudBatchId, configuration, sourceChecksum, enabled,
-                                    candidate.uri, candidate.filePath, candidate.isVideo, metadata.orientationDegrees, metadata.isMirrored, local) {
-                                    val live = settingsRepository.settingsFlow.first()
-                                    if (live.sourceUri != settings.sourceUri || live.cloudOptions != settings.cloudOptions ||
-                                        signature(live, db.categoryDao().getAllCategories()) != configuration)
-                                        throw CloudFailure(CloudErrorKind.CONSENT)
-                                    if (sourceChecksum == null || checksum(candidate.uri.toString(), candidate.filePath) != sourceChecksum)
-                                        throw CloudFailure(CloudErrorKind.CONSENT)
-                                }
+                            cloud.analyze(settings, cloudBatchId, configuration+";scope="+scope(selectedIds,forceReanalysis), sourceChecksum, enabled,
+                                candidate.uri, candidate.filePath, candidate.isVideo, metadata.orientationDegrees, metadata.isMirrored,
+                                force=forceReanalysis) {
+                                val live = settingsRepository.settingsFlow.first()
+                                if (live.sourceUri != settings.sourceUri || live.cloudOptions != settings.cloudOptions ||
+                                    signature(live, db.categoryDao().getAllCategories()) != configuration)
+                                    throw CloudFailure(CloudErrorKind.CONSENT)
+                                if (sourceChecksum == null || checksum(candidate.uri.toString(), candidate.filePath) != sourceChecksum)
+                                    throw CloudFailure(CloudErrorKind.CONSENT)
                             }
                         } catch (cancelled: CancellationException) { throw cancelled }
                         catch (error: Exception) {
-                            failed++
-                            ClassificationScoreMetrics("cat_other", "Other", 0f, 0f, 0f,
-                                needsManualReview = true, primarySubjectNote = "Decoding/inference failed: " + error.message)
+                            ClassificationScoreMetrics("__failed__", "Analysis Failed", 0f, 0f, 0f,
+                                needsManualReview = true, primarySubjectNote = "Decoding or analysis failed.",
+                                inferenceEngine="GEMINI",analysisStatus="FAILED",analysisModel=settings.cloudOptions.model)
                         }
                         if (sourceChecksum == null) {
                             metrics = metrics.copy(needsManualReview = true,
@@ -242,15 +281,18 @@ class MediaRepository(private val context: Context) {
                             if (!unchanged) {
                                 sourceChecksum = null
                                 metrics = metrics.copy(needsManualReview = true,
-                                    primarySubjectNote = "Source changed during analysis; re-analyze before transfer.")
+                                    primarySubjectNote = "Source changed during analysis; re-analyze before transfer.",
+                                    proposedCategoryIds=emptyList(),analysisStatus="FAILED",analysisJson="{}")
                             }
                         }
+                        val preservedLinks = existing?.let { db.virtualGalleryDao().links(it.id).filter { link -> link.origin=="EFFECTIVE" }.map { link -> link.categoryId } }.orEmpty()
                         val preservedDecision = existing?.takeIf { it.sha256Checksum == sourceChecksum && sourceChecksum != null }
                         val manual = preservedDecision?.takeIf { it.isManuallyCorrected }?.let {
                             categories.firstOrNull { cat -> cat.id == it.effectiveCategoryId && cat.isEnabled }
                         }
                         val category = manual ?: enabled.firstOrNull { it.id == metrics.categoryId }
-                        val needsReview = if (manual != null) false else metrics.needsManualReview
+                        val preserveManual = preservedDecision?.isManuallyCorrected==true && preservedLinks.isNotEmpty() && preservedLinks.all { id -> enabled.any { it.id==id } }
+                        val needsReview = if (preserveManual) sourceChecksum==null else metrics.needsManualReview
                         if (needsReview) uncertain++
                         val entity = MediaItemEntity(
                             id = existing?.id ?: 0, uriString = candidate.uri.toString(), filePath = candidate.filePath,
@@ -263,25 +305,38 @@ class MediaRepository(private val context: Context) {
                             calibratedConfidence = metrics.calibratedConfidence, rawSimilarityScore = metrics.rawSimilarityScore,
                             topMargin = metrics.topMargin, secondaryCategoryName = metrics.secondaryCategoryName,
                             isAmbiguousMultiScene = metrics.isAmbiguousMultiScene, needsManualReview = needsReview,
-                            isManuallyCorrected = manual != null, isExcludedFromTransfer = existing?.isExcludedFromTransfer ?: false,
+                            isManuallyCorrected = preserveManual, isExcludedFromTransfer = existing?.isExcludedFromTransfer ?: false,
                             primarySubjectNote = metrics.primarySubjectNote, frameBreakdownJson = json.encodeToString(metrics.frameSamples),
                             analyzedAtMs = System.currentTimeMillis(),
                             transferStatus = preservedDecision?.transferStatus ?: TransferItemStatus.PENDING.name,
                             proposedRelativePath = (category?.destinationSubfolder ?: "Other") + "/" + candidate.fileName,
                             destinationUriString = preservedDecision?.destinationUriString, sha256Checksum = sourceChecksum,
                             timestampVerified = preservedDecision?.timestampVerified, timestampStatusNote = preservedDecision?.timestampStatusNote,
-                            sourceRootUri = settings.sourceUri, scanSessionId = session.sessionId, analysisSignature = configuration, inferenceEngine = metrics.inferenceEngine
+                            sourceRootUri = settings.sourceUri, scanSessionId = session.sessionId, analysisSignature = configuration, inferenceEngine = metrics.inferenceEngine,
+                            analysisStatus=if(preserveManual) "APPROVED" else metrics.analysisStatus,
+                            analysisModel=metrics.analysisModel,analysisJson=metrics.analysisJson,
+                            decisionVersion=(existing?.decisionVersion ?: 0)+1
                         )
-                        db.mediaItemDao().upsertMediaItem(entity)
+                        db.withTransaction {
+                            val id=db.mediaItemDao().upsertMediaItem(entity)
+                            db.virtualGalleryDao().clearLinks(id,"PROPOSED")
+                            db.virtualGalleryDao().clearLinks(id,"EFFECTIVE")
+                            db.virtualGalleryDao().insertLinks(metrics.proposedCategoryIds.map { MediaCategoryLink(id,it,"PROPOSED") })
+                            val effective=if(preserveManual) preservedLinks else metrics.proposedCategoryIds
+                            db.virtualGalleryDao().insertLinks(effective.map { MediaCategoryLink(id,it,"EFFECTIVE") })
+                        }
                     }
                     processed++
+                    val currentRow=db.mediaItemDao().getByUri(candidate.uri.toString())
+                    if(currentRow?.analysisStatus=="FAILED") failed++ else if(currentRow?.analysisStatus!="PENDING") classified++
                     session = session.copy(totalScanned = _analysisProgress.value.totalFiles,
-                        totalClassified = processed, uncertainCount = uncertain, failedCount = failed)
+                        totalClassified = classified, uncertainCount = uncertain, failedCount = failed)
                     db.analysisSessionDao().upsertSession(session)
                     val currentCategory = db.mediaItemDao().getByUri(candidate.uri.toString())?.effectiveCategoryName.orEmpty()
                     _analysisProgress.update { it.copy(processedFiles = processed, skippedUnchangedCount = skipped,
                         currentDetectedCategory = currentCategory) }
                 }
+                _analysisProgress.update { it.copy(totalFiles=processed) }
                 session = session.copy(completedAtMs = System.currentTimeMillis(), totalScanned = processed, status = "COMPLETED")
                 db.analysisSessionDao().upsertSession(session)
             } catch (cancelled: CancellationException) {
@@ -293,136 +348,193 @@ class MediaRepository(private val context: Context) {
                 _analysisProgress.update { it.copy(errorMessage = error.message) }
                 throw error
             } finally {
-                aiClassifier.close()
                 _analysisProgress.update { it.copy(isRunning = false, isPaused = false, isDiscovering = false) }
             }
         }
     }
 
-    suspend fun executeVerifiedTransfers(settings: AppSettings, includeReviewFlaggedItems: Boolean = false): List<SingleTransferOutcome> =
-        withContext(Dispatchers.IO) {
-            operationMutex.withLock {
-                reconcileLocked()
-                val outcomes = mutableListOf<SingleTransferOutcome>()
-                try {
-                    require(settings.operationMode == OperationMode.MOVE_FILES &&
-                        settingsRepository.settingsFlow.first().operationMode == OperationMode.MOVE_FILES) {
-                        "Enable Organize Mode before confirming a transfer."
+    /** Legacy entry point cannot turn classification approval into an implicit operation plan. */
+    suspend fun executeVerifiedTransfers(settings: AppSettings,includeReviewFlaggedItems: Boolean=false): List<SingleTransferOutcome> =
+        error("Use a selected-media physical operation preview and explicitly approve that plan.")
+
+    suspend fun previewOperations(ids: Set<Long>,method: TransferMethod,moveTargets: Map<Long,String>): OperationPreview =
+        operationMutex.withLock {
+            require(ids.size in 1..100) { "Select 1 to 100 media items per physical plan." }
+            val settings=settingsRepository.settingsFlow.first()
+            require(settings.destinationUri.isNotBlank()) { "Select a destination folder first." }
+            val categories=db.categoryDao().getAllCategories().associateBy { it.id }
+            val group=UUID.randomUUID().toString()
+            val names=mutableMapOf<Long,String>()
+            val steps=buildList {
+                for(id in ids.sorted()) {
+                    val item=db.mediaItemDao().getMediaItemById(id) ?: error("Media is unavailable.")
+                    require(item.sourceRootUri==settings.sourceUri && !item.isExcludedFromTransfer)
+                    require(!item.needsManualReview && item.analysisStatus in setOf("PROPOSED","APPROVED")) {
+                        "Resolve review or analysis failure before physical organization."
                     }
-                    val session = db.analysisSessionDao().latestForSource(settings.sourceUri)
-                        ?: error("Analyze this source first.")
-                    require(session.status == "COMPLETED") { "Finish analysis of this source before transfer." }
-                    val categories = db.categoryDao().getAllCategories()
-                    require(session.analysisSignature == signature(settings, categories)) {
-                        "Categories or AI settings changed; re-analyze."
+                    require(item.sha256Checksum!=null && checksum(item.uriString,item.filePath)==item.sha256Checksum) {
+                        "Original bytes changed or are unavailable; reanalyze first."
                     }
-                    val categoriesById = categories.associateBy { it.id }
-                    val terminal = setOf(TransferItemStatus.COMPLETED_VERIFIED.name,
-                        TransferItemStatus.COMPLETED_TIMESTAMP_WARNING.name, TransferItemStatus.COMPLETED_SOURCE_RETAINED.name,
-                        TransferItemStatus.SKIPPED_COLLISION.name, TransferItemStatus.RECOVERY_REQUIRED.name)
-                    val items = db.mediaItemDao().getCurrentMediaItems(settings.sourceUri).filter {
-                        !it.isExcludedFromTransfer && it.transferStatus !in terminal && it.sha256Checksum != null &&
-                        categoriesById[it.effectiveCategoryId]?.isEnabled == true &&
-                        (it.inferenceEngine != "ONNX_DIAGNOSTIC" || it.isManuallyCorrected) &&
-                        (!CloudApproval.requiresIndividualReview(it.inferenceEngine) || it.isManuallyCorrected) &&
-                        (it.isManuallyCorrected || includeReviewFlaggedItems ||
-                            !it.needsManualReview && it.calibratedConfidence >= settings.confidenceThreshold)
+                    names[id]=item.fileName
+                    val links=db.virtualGalleryDao().links(id).filter { it.origin=="EFFECTIVE" }.map { it.categoryId }.toSet()
+                    for(step in OperationPlanner.build(id,links,method,moveTargets[id] ?: links.singleOrNull())) {
+                        val cat=categories[step.categoryId] ?: error("Category was deleted.")
+                        require(cat.isEnabled)
+                        val destination=cat.customDestinationUri?.takeIf { it.isNotBlank() } ?: settings.destinationUri
+                        require(!storageScanner.isDestinationInsideSource(settings.sourceUri,destination))
+                        SafeRelativePath.segments(cat.destinationSubfolder)
+                        add(PhysicalPlanEntity(UUID.randomUUID().toString(),id,cat.id,step.method.name,
+                            item.sha256Checksum,item.decisionVersion,destination,cat.destinationSubfolder,group,size))
                     }
-                    _transferProgress.value = LiveTransferProgress(isRunning = true, totalToTransfer = items.size)
-                    var succeeded = 0
-                    var failed = 0
-                    var timestampVerified = 0
-                    var collisions = 0
-                    var retained = 0
-                    var skipped = 0
-                    var moved = 0
-                    for (item in items) {
-                        currentCoroutineContext().ensureActive()
-                        val currentSettings = settingsRepository.settingsFlow.first()
-                        require(currentSettings.operationMode == OperationMode.MOVE_FILES &&
-                            currentSettings.sourceUri == settings.sourceUri &&
-                            currentSettings.destinationUri == settings.destinationUri &&
-                            currentSettings.transferMethod == settings.transferMethod &&
-                            currentSettings.timestampPolicy == settings.timestampPolicy &&
-                            signature(currentSettings, db.categoryDao().getAllCategories()) == session.analysisSignature) {
-                            "Transfer settings changed; original preserved."
-                        }
-                        if (db.mediaItemDao().getMediaItemById(item.id)?.isExcludedFromTransfer == true) continue
-                        val operationId = UUID.randomUUID().toString()
-                        var journal = TransferJournalEntity(operationId, item.id, settings.sourceUri, item.uriString,
-                            settings.transferMethod.name, "PREPARED", null, null, item.sha256Checksum,
-                            item.originalLastModifiedMs, 0, false, System.currentTimeMillis(), "")
-                        db.withTransaction {
-                            db.transferJournalDao().upsert(journal)
-                            db.mediaItemDao().updateMediaItem(item.copy(transferStatus = TransferItemStatus.IN_PROGRESS.name))
-                        }
-                        val category = checkNotNull(categoriesById[item.effectiveCategoryId])
-                        _transferProgress.update { it.copy(currentFileName = item.fileName) }
-                        val outcome = safeFileMover.transferMediaItem(session.sessionId, item, settings.sourceUri,
-                            category.customDestinationUri?.takeIf { it.isNotBlank() } ?: settings.destinationUri,
-                            category.destinationSubfolder, settings.operationMode, settings.transferMethod,
-                            settings.collisionPolicy, settings.timestampPolicy) { checkpoint ->
-                            if (checkpoint.phase == "SOURCE_DELETE_PENDING") {
-                                val live = settingsRepository.settingsFlow.first()
-                                require(live.operationMode == OperationMode.MOVE_FILES && live.sourceUri == settings.sourceUri &&
-                                    live.destinationUri == settings.destinationUri &&
-                                    live.transferMethod == settings.transferMethod &&
-                                    live.timestampPolicy == settings.timestampPolicy &&
-                                    signature(live, db.categoryDao().getAllCategories()) == session.analysisSignature &&
-                                    db.mediaItemDao().getMediaItemById(item.id)?.let {
-                                        !it.isExcludedFromTransfer && it.effectiveCategoryId == item.effectiveCategoryId &&
-                                            it.transferStatus == TransferItemStatus.IN_PROGRESS.name
-                                    } == true) {
-                                    "Organize Mode revoked; original preserved."
-                                }
-                            }
-                            journal = journal.copy(phase = checkpoint.phase, destinationUri = checkpoint.destinationId,
-                                stagingUri = checkpoint.stagingId, checksum = checkpoint.checksum,
-                                originalModifiedMs = checkpoint.originalModifiedMs,
-                                destinationModifiedMs = checkpoint.destinationModifiedMs,
-                                timestampPreserved = checkpoint.timestampPreserved, updatedAtMs = System.currentTimeMillis())
-                            db.transferJournalDao().upsert(journal)
-                        }
-                        outcomes += outcome
-                        db.withTransaction {
-                            db.transferLogDao().insertLog(outcome.logEntry)
-                            val currentItem = db.mediaItemDao().getMediaItemById(item.id) ?: item
-                            db.mediaItemDao().updateMediaItem(currentItem.copy(transferStatus = outcome.status.name,
-                                destinationUriString = outcome.destinationUriString, sha256Checksum = item.sha256Checksum,
-                                timestampVerified = outcome.timestampPreserved, timestampStatusNote = outcome.detailsMessage,
-                                needsManualReview = currentItem.needsManualReview || outcome.status == TransferItemStatus.RECOVERY_REQUIRED))
-                            db.transferJournalDao().upsert(journal.copy(
-                                phase = if (outcome.status == TransferItemStatus.FAILED || outcome.status == TransferItemStatus.RECOVERY_REQUIRED) "FAILED" else "FINALIZED",
-                                details = outcome.detailsMessage))
-                        }
-                        when (outcome.status) {
-                            TransferItemStatus.SKIPPED_COLLISION -> skipped++
-                            TransferItemStatus.COMPLETED_VERIFIED, TransferItemStatus.COMPLETED_TIMESTAMP_WARNING,
-                            TransferItemStatus.COMPLETED_SOURCE_RETAINED -> {
-                                succeeded++
-                                if (outcome.timestampPreserved) timestampVerified++
-                                if (outcome.collisionResolutionNote != null) collisions++
-                                if (outcome.logEntry.operationType == "MOVE") moved++ else retained++
-                            }
-                            else -> failed++
-                        }
-                        _transferProgress.value = LiveTransferProgress(true, items.size, outcomes.size, succeeded,
-                            timestampVerified, collisions, failed, item.fileName, outcome.detailsMessage, retained, skipped)
-                    }
-                    db.analysisSessionDao().upsertSession(session.copy(movedCount = session.movedCount + moved,
-                        failedCount = session.failedCount + failed))
-                    outcomes
-                } catch (cancelled: CancellationException) {
-                    _transferProgress.update { it.copy(statusMessage = "Transfer cancelled; recovery never resumes source deletion.") }
-                    throw cancelled
-                } catch (error: Exception) {
-                    _transferProgress.update { it.copy(statusMessage = error.message.orEmpty()) }
-                    throw error
-                } finally {
-                    _transferProgress.update { it.copy(isRunning = false) }
                 }
             }
+            require(steps.map { Triple(it.mediaId,it.destinationRoot,it.destinationFolder) }.distinct().size==steps.size) {
+                "Two categories use the same physical destination. Choose distinct destinations before copying."
+            }
+            require(steps.size<=100) { "A physical batch supports at most 100 destination operations. Reduce selection." }
+            OperationPreview(settings,steps,names)
         }
+
+    /** Persist only after explicit UI confirmation; preview and virtual corrections never reach storage writes. */
+    suspend fun approveOperationPreview(preview: OperationPreview): List<String> = operationMutex.withLock {
+        val current=settingsRepository.settingsFlow.first()
+        require(current.sourceUri==preview.settings.sourceUri && current.destinationUri==preview.settings.destinationUri &&
+            current.timestampPolicy==preview.settings.timestampPolicy && current.collisionPolicy==preview.settings.collisionPolicy &&
+            current.operationMode==OperationMode.MOVE_FILES) { "Operation settings changed. Preview again." }
+        require(preview.steps.isNotEmpty())
+        db.withTransaction {
+            for(step in preview.steps) {
+                val item=requireNotNull(db.mediaItemDao().getMediaItemById(step.mediaId))
+                require(item.decisionVersion==step.decisionVersion && item.sha256Checksum==step.sourceHash &&
+                    !item.needsManualReview && !item.isExcludedFromTransfer && item.sourceRootUri==current.sourceUri)
+                require(db.virtualGalleryDao().links(item.id).any { it.origin=="EFFECTIVE" && it.categoryId==step.categoryId })
+                val prior=db.virtualGalleryDao().plansForMedia(item.id)
+                require(prior.none { it.sourceHash==step.sourceHash && it.destinationRoot==step.destinationRoot &&
+                    it.destinationFolder==step.destinationFolder && it.status !in setOf("CANCELLED","FAILED") }) {
+                    "A matching operation already exists. Inspect its destination before creating another copy."
+                }
+            }
+            db.virtualGalleryDao().insertPlans(preview.steps)
+        }
+        preview.steps.map { it.id }
+    }
+
+    suspend fun cancelPhysicalPlans() {
+        db.withTransaction {
+            db.virtualGalleryDao().cancelUnstartedPlans()
+            db.virtualGalleryDao().requestCancelRunningPlans()
+        }
+    }
+
+    suspend fun executePhysicalPlans(settings: AppSettings,ids: List<String>) = withContext(Dispatchers.IO) {
+        operationMutex.withLock {
+            reconcileLocked()
+            require(ids.size in 1..100 && ids.distinct().size==ids.size)
+            val steps=db.virtualGalleryDao().plans(ids)
+            require(steps.size==ids.size && steps.all { it.status=="APPROVED" }) { "Plan already executed or requires recovery review." }
+            _transferProgress.value=LiveTransferProgress(isRunning=true,totalToTransfer=steps.size)
+            val successful=mutableListOf<PhysicalPlanEntity>()
+            var done=0;var failed=0;var retained=0;var timestampCount=0
+            try {
+                for(step in steps) {
+                    currentCoroutineContext().ensureActive()
+                    val live=settingsRepository.settingsFlow.first()
+                    require(live.operationMode==OperationMode.MOVE_FILES && live.sourceUri==settings.sourceUri &&
+                        live.destinationUri==settings.destinationUri && live.timestampPolicy==settings.timestampPolicy &&
+                        live.collisionPolicy==settings.collisionPolicy) { "Operation permission or settings changed." }
+                    val item=requireNotNull(db.mediaItemDao().getMediaItemById(step.mediaId))
+                    val category=db.categoryDao().getAllCategories().firstOrNull { it.id==step.categoryId } ?: error("Category removed.")
+                    require(category.isEnabled && category.destinationSubfolder==step.destinationFolder &&
+                        (category.customDestinationUri?.takeIf { it.isNotBlank() } ?: live.destinationUri)==step.destinationRoot)
+                    require(item.decisionVersion==step.decisionVersion && item.sha256Checksum==step.sourceHash &&
+                        !item.needsManualReview && !item.isExcludedFromTransfer && item.sourceRootUri==live.sourceUri)
+                    require(checksum(item.uriString,item.filePath)==step.sourceHash) { "Original changed; operation blocked." }
+                    if(step.method=="MOVE") {
+                        val required=steps.filter { it.mediaId==step.mediaId && it.sequence<step.sequence }
+                        require(required.all { previous -> successful.any { it.id==previous.id } }) { "A preceding copy did not complete." }
+                        for(copy in successful.filter { it.mediaId==step.mediaId }) {
+                            require(copy.destinationUri!=null && checksum(copy.destinationUri)==step.sourceHash) {
+                                "An additional destination no longer verifies. Original retained."
+                            }
+                        }
+                    }
+                    val journalId=step.id
+                    var journal=TransferJournalEntity(journalId,item.id,live.sourceUri,item.uriString,step.method,
+                        "PREPARED",null,null,step.sourceHash,item.originalLastModifiedMs,0,false,System.currentTimeMillis(),"")
+                    db.withTransaction {
+                        require(db.virtualGalleryDao().plans(listOf(step.id)).singleOrNull()?.status=="APPROVED") { "Plan cancelled before transfer." }
+                        val currentItem=requireNotNull(db.mediaItemDao().getMediaItemById(item.id))
+                        require(currentItem.decisionVersion==step.decisionVersion && !currentItem.isExcludedFromTransfer)
+                        db.virtualGalleryDao().updatePlan(step.copy(status="RUNNING"))
+                        db.transferJournalDao().upsert(journal)
+                        db.mediaItemDao().updateMediaItem(currentItem.copy(transferStatus=TransferItemStatus.IN_PROGRESS.name))
+                    }
+                    _transferProgress.update { it.copy(currentFileName=item.fileName) }
+                    val outcome=safeFileMover.transferMediaItem(step.groupId,item.copy(effectiveCategoryId=category.id,
+                        effectiveCategoryName=category.name),live.sourceUri,step.destinationRoot,step.destinationFolder,
+                        OperationMode.MOVE_FILES,TransferMethod.valueOf(step.method),live.collisionPolicy,live.timestampPolicy) { checkpoint ->
+                        currentCoroutineContext().ensureActive()
+                        if(checkpoint.phase=="SOURCE_DELETE_PENDING") {
+                            val now=settingsRepository.settingsFlow.first()
+                            val row=db.mediaItemDao().getMediaItemById(item.id)
+                            require(db.virtualGalleryDao().plans(listOf(step.id)).singleOrNull()?.status=="RUNNING") { "Transfer approval revoked; source retained." }
+                            require(now.operationMode==OperationMode.MOVE_FILES && now.sourceUri==live.sourceUri &&
+                                now.destinationUri==live.destinationUri && now.timestampPolicy==live.timestampPolicy &&
+                                row!=null && row.decisionVersion==step.decisionVersion && !row.isExcludedFromTransfer)
+                            val currentCat=db.categoryDao().getAllCategories().firstOrNull { it.id==step.categoryId }
+                            require(currentCat?.isEnabled==true && currentCat.destinationSubfolder==step.destinationFolder &&
+                                (currentCat.customDestinationUri?.takeIf { it.isNotBlank() } ?: now.destinationUri)==step.destinationRoot)
+                            for(copy in successful.filter { it.mediaId==step.mediaId })
+                                require(copy.destinationUri!=null && checksum(copy.destinationUri)==step.sourceHash)
+                        }
+                        journal=journal.copy(phase=checkpoint.phase,destinationUri=checkpoint.destinationId,
+                            stagingUri=checkpoint.stagingId,checksum=checkpoint.checksum,
+                            originalModifiedMs=checkpoint.originalModifiedMs,destinationModifiedMs=checkpoint.destinationModifiedMs,
+                            timestampPreserved=checkpoint.timestampPreserved,updatedAtMs=System.currentTimeMillis())
+                        db.transferJournalDao().upsert(journal)
+                    }
+                    val verified=outcome.status in setOf(TransferItemStatus.COMPLETED_VERIFIED,
+                        TransferItemStatus.COMPLETED_TIMESTAMP_WARNING,TransferItemStatus.COMPLETED_SOURCE_RETAINED) &&
+                        outcome.sha256Checksum==step.sourceHash && outcome.destinationUriString!=null
+                    val stored=step.copy(status=outcome.status.name,destinationUri=outcome.destinationUriString,note=outcome.detailsMessage)
+                    db.withTransaction {
+                        db.virtualGalleryDao().updatePlan(stored)
+                        db.transferLogDao().insertLog(outcome.logEntry)
+                        val currentItem=requireNotNull(db.mediaItemDao().getMediaItemById(item.id))
+                        db.mediaItemDao().updateMediaItem(currentItem.copy(transferStatus=outcome.status.name,
+                            destinationUriString=outcome.destinationUriString ?: item.destinationUriString,
+                            timestampVerified=outcome.timestampPreserved,timestampStatusNote=outcome.detailsMessage))
+                        db.transferJournalDao().upsert(journal.copy(phase=if(verified) "FINALIZED" else "FAILED",
+                            details=outcome.detailsMessage))
+                    }
+                    done++
+                    if(verified) {
+                        successful+=stored
+                        if(outcome.timestampPreserved) timestampCount++
+                        if(step.method=="COPY" || outcome.status==TransferItemStatus.COMPLETED_SOURCE_RETAINED) retained++
+                    } else failed++
+                    _transferProgress.update { it.copy(processedCount=done,succeededCount=successful.size,
+                        failedCount=failed,sourceRetainedCount=retained,timestampVerifiedCount=timestampCount,
+                        statusMessage=outcome.detailsMessage) }
+                    if(!verified) error("A destination did not verify. Remaining operations stopped; inspect the plan.")
+                }
+            } catch(cancelled: CancellationException) {
+                withContext(NonCancellable) {
+                    for(step in steps) if(db.virtualGalleryDao().plans(listOf(step.id)).singleOrNull()?.status=="APPROVED")
+                        db.virtualGalleryDao().updatePlan(step.copy(status="CANCELLED",note="Cancelled before this operation started."))
+                }
+                throw cancelled
+            } catch(error: Exception) {
+                for(step in steps) if(db.virtualGalleryDao().plans(listOf(step.id)).singleOrNull()?.status=="APPROVED")
+                    db.virtualGalleryDao().updatePlan(step.copy(status="CANCELLED",note="Not started. Prior step or plan validation failed."))
+                _transferProgress.update { it.copy(statusMessage=error.message.orEmpty()) }
+                throw error
+            } finally {
+                withContext(NonCancellable) { db.virtualGalleryDao().recoverRunningPlans() }
+                _transferProgress.update { it.copy(isRunning=false) }
+            }
+        }
+    }
 
     private suspend fun exportSelection(ids: Set<Long>, destination: String, method: TransferMethod): List<FileOperationExportRecord> {
         val settings = settingsRepository.settingsFlow.first()

@@ -18,8 +18,8 @@ class MediaTransferWorker(context: Context, parameters: WorkerParameters) : Coro
             val snapshot = Json.decodeFromString<AppSettings>(
                 inputData.getString(MediaAnalysisWorker.SETTINGS_JSON) ?: error("Missing confirmed settings snapshot."))
             setForeground(WorkerNotifications.create(applicationContext, true))
-            (applicationContext as AIMediaSorterApp).repository.executeVerifiedTransfers(snapshot,
-                inputData.getBoolean(INCLUDE_REVIEW, false))
+            (applicationContext as AIMediaSorterApp).repository.executePhysicalPlans(snapshot,
+                inputData.getStringArray("physical_plan_ids")?.toList() ?: error("Missing explicitly approved physical plan."))
             Result.success()
         } catch (cancelled: CancellationException) {
             throw cancelled

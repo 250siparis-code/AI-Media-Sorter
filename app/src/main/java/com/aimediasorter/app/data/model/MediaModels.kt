@@ -76,7 +76,11 @@ data class ClassificationScoreMetrics(
     val primarySubjectNote: String = "",
     val frameSamples: List<FrameClassificationSample> = emptyList(),
     val modelLabels: Map<String, Float> = emptyMap(),
-    val inferenceEngine: String = "unknown"
+    val inferenceEngine: String = "unknown",
+    val proposedCategoryIds: List<String> = emptyList(),
+    val analysisJson: String = "{}",
+    val analysisStatus: String = "LEGACY",
+    val analysisModel: String = ""
 )
 
 data class DefaultCategorySpec(
