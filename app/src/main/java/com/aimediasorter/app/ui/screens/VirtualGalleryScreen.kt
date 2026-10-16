@@ -17,6 +17,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -43,9 +44,10 @@ import com.aimediasorter.app.ui.theme.*
             .crossfade(false).build()
     }
     var failed by remember(request) { mutableStateOf(false) }
+    var loaded by remember(request) { mutableStateOf(false) }
     Box(modifier.background(AmoledElevatedSurface)) {
-        AsyncImage(request,contentDescription=item.fileName,contentScale=ContentScale.Crop,
-            onError={failed=true},onSuccess={failed=false},modifier=Modifier.fillMaxSize())
+        AsyncImage(request,contentDescription=if(loaded) item.fileName else null,contentScale=ContentScale.Crop,
+            onError={failed=true;loaded=false},onSuccess={failed=false;loaded=true},modifier=Modifier.fillMaxSize())
         if(failed) Text(stringResource(R.string.virtual_preview_unavailable),Modifier.padding(8.dp),style=MaterialTheme.typography.labelSmall)
     }
 }
@@ -85,7 +87,7 @@ import com.aimediasorter.app.ui.theme.*
     }
     BackHandler(folder.isNotEmpty() && initialFolder.isEmpty()) { folder="";selected=emptySet() }
     LaunchedEffect(currentIds) { selected=selected.intersect(currentIds) }
-    Column(Modifier.fillMaxSize().background(AmoledPureBlack).padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxSize().testTag("virtual-gallery").background(AmoledPureBlack).padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
             Text(title,style=MaterialTheme.typography.titleLarge,modifier=Modifier.weight(1f))
             if(folder.isNotEmpty() && initialFolder.isEmpty()) TextButton(onClick={folder="";selected=emptySet()}) { Text(stringResource(R.string.btn_back)) }
@@ -108,7 +110,7 @@ import com.aimediasorter.app.ui.theme.*
                         else->categories.first { it.id==id }.let { categoryDisplayName(it.id,it.name) }
                     }
                     Surface(shape=RoundedCornerShape(12.dp),border=BorderStroke(1.dp,AmoledSubtleBorder),
-                        color=AmoledPureBlack,modifier=Modifier.clickable { folder=id;selected=emptySet() }) {
+                        color=AmoledPureBlack,modifier=Modifier.testTag("virtual-folder-"+id).clickable { folder=id;selected=emptySet() }) {
                         Column {
                             items.firstOrNull()?.let { MediaThumbnail(it,Modifier.fillMaxWidth().height(112.dp)) }
                             Text(label,Modifier.padding(8.dp),style=MaterialTheme.typography.titleSmall)
@@ -140,7 +142,7 @@ import com.aimediasorter.app.ui.theme.*
                 items(visible,key={it.id}) { item ->
                     Surface(color=AmoledPureBlack,border=BorderStroke(if(item.id in selected) 2.dp else 1.dp,
                         if(item.id in selected) PrimaryPurple else AmoledSubtleBorder),shape=RoundedCornerShape(8.dp),
-                        modifier=Modifier.combinedClickable(
+                        modifier=Modifier.testTag("virtual-media-"+item.id).combinedClickable(
                             onClick={if(selected.isEmpty()) onInspect(item.id) else selected=if(item.id in selected) selected-item.id else (selected+item.id).take(100).toSet()},
                             onLongClick={selected=if(item.id in selected) selected-item.id else (selected+item.id).take(100).toSet()})) {
                         Column {

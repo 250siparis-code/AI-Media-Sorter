@@ -15,6 +15,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -39,13 +42,13 @@ import java.util.Date
     var chosen by remember(item.id,item.decisionVersion,effective) { mutableStateOf(effective) }
     var viewer by remember { mutableStateOf(false) }
     val analysis=remember(item.analysisJson) { runCatching { Json.decodeFromString<CloudDecision>(item.analysisJson) }.getOrNull() }
-    Column(Modifier.fillMaxSize().background(AmoledPureBlack).verticalScroll(rememberScrollState()).padding(16.dp),
+    Column(Modifier.fillMaxSize().background(AmoledPureBlack).verticalScroll(rememberScrollState()).testTag("media-review-scroll").padding(16.dp),
         verticalArrangement=Arrangement.spacedBy(10.dp)) {
         TextButton(onClick=onBack) { Text(stringResource(R.string.btn_back)) }
         Text(item.fileName,style=MaterialTheme.typography.titleLarge)
         Text(analysisStatusLabel(item.analysisStatus),color=if(item.needsManualReview) StatusAmber else PrimaryPurpleLight)
         MediaThumbnail(item,Modifier.fillMaxWidth().height(220.dp))
-        OutlinedButton(onClick={viewer=true},modifier=Modifier.fillMaxWidth()) { Text(stringResource(R.string.virtual_view_full)) }
+        OutlinedButton(onClick={viewer=true},modifier=Modifier.fillMaxWidth().testTag("view-full-image")) { Text(stringResource(R.string.virtual_view_full)) }
         Text(stringResource(R.string.virtual_only_notice),style=MaterialTheme.typography.bodySmall)
         Text(stringResource(R.string.virtual_suggestions)+": "+proposed.mapNotNull { id->categories.firstOrNull { it.id==id } }.joinToString { it.name })
         if(analysis!=null) {
@@ -84,18 +87,20 @@ import java.util.Date
     if(viewer) FullMediaViewer(item) { viewer=false }
 }
 
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable fun FullMediaViewer(item: MediaItemEntity,onDismiss: ()->Unit) {
     val context=LocalContext.current
     var scale by remember { mutableFloatStateOf(1f) }
     var x by remember { mutableFloatStateOf(0f) };var y by remember { mutableFloatStateOf(0f) }
     var error by remember { mutableStateOf(false) }
+    var loaded by remember { mutableStateOf(false) }
     val uri=item.destinationUriString ?: item.uriString
     val request=remember(uri,item.sha256Checksum) { ImageRequest.Builder(context).data(uri)
         .size(2048,2048).videoFrameMillis(1000).memoryCacheKey(uri+":"+item.sha256Checksum+":viewer2048").build() }
     Dialog(onDismissRequest=onDismiss,properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)) {
-        Box(Modifier.fillMaxSize().background(AmoledPureBlack).windowInsetsPadding(WindowInsets.safeDrawing)) {
-            AsyncImage(request,contentDescription=item.fileName,contentScale=ContentScale.Fit,
-                onError={error=true},modifier=Modifier.fillMaxSize().pointerInput(Unit) {
+        Box(Modifier.fillMaxSize().semantics { testTagsAsResourceId=true }.testTag("full-media-viewer").background(AmoledPureBlack).windowInsetsPadding(WindowInsets.safeDrawing)) {
+            AsyncImage(request,contentDescription=if(loaded) item.fileName else null,contentScale=ContentScale.Fit,
+                onSuccess={loaded=true;error=false},onError={error=true;loaded=false},modifier=Modifier.fillMaxSize().pointerInput(Unit) {
                     detectTransformGestures { _,pan,zoom,_ ->
                         scale=(scale*zoom).coerceIn(1f,5f)
                         x=if(scale==1f) 0f else (x+pan.x).coerceIn(-3000f,3000f)

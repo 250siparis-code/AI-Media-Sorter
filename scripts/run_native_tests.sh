@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 dump_test_failures() {
+  # The emulator runner terminates its device before subsequent workflow steps.
+  # Capture the crash buffer here while the failing process/device is still available.
+  adb logcat -b crash -d -v threadtime > android-crash-logcat.txt 2>&1 || true
+  tail -n 200 android-crash-logcat.txt || true
   python3 - <<'PY'
 import pathlib, xml.etree.ElementTree as ET
 for path in pathlib.Path("app/build/outputs/androidTest-results").rglob("TEST-*.xml"):

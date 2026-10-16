@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.SystemClock
 import android.view.KeyEvent
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.*
 import com.aimediasorter.app.data.preferences.GeminiKeyVault
@@ -27,23 +28,14 @@ class GeminiSettingsUiTest {
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         val synthetic="AQ."+"SyntheticCredential".repeat(8)
         val replacement="AQ."+"ReplacementCredential".repeat(9)
-        var activity: android.app.Activity?=null
+        var scenario: ActivityScenario<MainActivity>?=null
+        val ui=InstalledUi(device)
         fun openSettings() {
-            // A Settings heading can still belong to the closing Activity. Select
-            // the actual navigation action, then wait for the new settings viewport.
-            val navigation=device.wait(Until.findObject(By.res("nav-settings")),10_000)
-            requireNotNull(navigation).click()
+            ui.click("nav-settings")
             assertTrue("Settings navigation must open its own scroll viewport.",
                 device.wait(Until.hasObject(By.res("settings-scroll")),10_000)==true)
-            device.waitForIdle()
         }
-        fun control(tag: String): UiObject2 {
-            // Scope vertical scrolling to Settings, never a password field's own
-            // horizontal scrollable accessibility node.
-            UiScrollable(UiSelector().resourceId("settings-scroll")).setAsVerticalList()
-                .scrollIntoView(UiSelector().resourceId(tag))
-            return requireNotNull(device.wait(Until.findObject(By.res(tag)),10_000)) { "Control unavailable: "+tag }
-        }
+        fun control(tag: String)=ui.control(tag,"settings-scroll")
         fun awaitKey(expected: String?) {
             val deadline=SystemClock.uptimeMillis()+10_000
             do {
@@ -83,14 +75,13 @@ class GeminiSettingsUiTest {
             requireNotNull(save).click();awaitKey(value);device.waitForIdle()
         }
         try {
-            activity=instrumentation.startActivitySync(intent);device.waitForIdle();openSettings()
+            scenario=ActivityScenario.launch<MainActivity>(intent);device.waitForIdle();openSettings()
             val emptySave=control("gemini-save-key")
             assertFalse("An empty key must disable the Save control.",emptySave.isEnabled)
             saveKey(synthetic)
             assertEquals(synthetic,GeminiKeyVault(context).read())
             device.pressBack();device.waitForIdle() // Dismiss the first Activity's keyboard before restart.
-            instrumentation.runOnMainSync { activity?.finish() }
-            activity=instrumentation.startActivitySync(intent);device.waitForIdle();openSettings()
+            requireNotNull(scenario).recreate();device.waitForIdle();openSettings()
             assertEquals(synthetic,GeminiKeyVault(context).read())
             saveKey(replacement)
             assertEquals(replacement,GeminiKeyVault(context).read())
@@ -99,7 +90,7 @@ class GeminiSettingsUiTest {
             remove.click();awaitKey(null);device.waitForIdle()
             assertFalse(vault.hasKey())
         } finally {
-            instrumentation.runOnMainSync { activity?.finish() }
+            scenario?.close()
             vault.clear()
         }
     }

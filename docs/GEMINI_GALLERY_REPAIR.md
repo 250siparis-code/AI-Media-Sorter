@@ -8,7 +8,7 @@ This phase explicitly supersedes the earlier selectable Offline/Hybrid requireme
 The Compose Save button, GeminiKeyVault.save, and GeminiHttpTransport.request each used the pattern `[A-Za-z0-9_-]{20,256}`. It rejects the period in `AQ.` authorization keys, and rejects longer complete keys. The UI disabled Save before the click handler could run. Even fixing only the UI would leave vault/transport rejection.
 The click handler also cleared the input before asynchronous persistence completed. Save exceptions went to a generic export snackbar instead of the key card.
 ApiKeyInput now centralizes bounded printable ASCII validation (20–4096 characters, trimmed outer whitespace, no internal whitespace/control characters, no required prefix). This validates safe input transport, not credentials.
-Save/Replace use Android Keystore AES-GCM and AtomicFile in noBackupFilesDir. Success is acknowledged after encrypted readback; input is retained on failure. The credential epoch advances before atomic publication so a crash cannot publish a changed key under an old consent epoch. Key actions and settings refresh are serialized. Delete revokes consent and removes the encrypted record and alias.
+Save/Replace use Android Keystore AES-GCM and AtomicFile in noBackupFilesDir. Success is acknowledged after encrypted readback; input is retained on failure. The credential epoch advances before atomic publication so a crash cannot publish a changed key under an old consent epoch. Key actions and settings refresh are serialized. Every vault instance in the app process shares a lock keyed by the encrypted file's canonical path: AtomicFile provides no locking, and openRead can remove an unfinished concurrent replacement. Reads, snapshots, revision changes, writes and deletion use this lock. A concurrent replacement regression test protects this boundary. Delete revokes consent and removes the encrypted record and alias.
 A saved key is explicitly labeled unverified. No actual user key was supplied to this development environment or written to source, exports, logs, WorkData, or assets.
 
 ## Connection and model verification
@@ -40,6 +40,8 @@ Users can inspect a full-screen, bounded-resolution zoomable preview, view sugge
 Reports/advanced results and source/category management remain reachable.
 
 ## Consent, quota and recovery
+This is a personal BYOK client. Keystore encryption protects storage at rest; a rooted/compromised device, malicious keyboard or process instrumentation can still expose a decrypted key. It is not equivalent to a server-held credential. Deleting the local key does not revoke it at Google. Google account/service-tier data terms apply to uploaded images.
+
 Every personal-media batch requires an unchecked-by-default upload consent. Reanalysis can be scoped to at most 100 explicitly selected media IDs, bound into the consent signature; only those IDs are uploaded. Initial analysis is scoped to the user-selected directory and stated traversal options. The consent signature binds the source URI, recursion, media filter and extensions as well as model/category/credential configuration; a grant for one directory cannot authorize another.
 Defaults: at most 12 generation attempts per batch, 100 per UTC day, one retry and 15 seconds between generation attempts. The interval is configurable (0–120 seconds); Google quotas vary by model and account. Durable accounting reserves attempts before sending, including retries. Cancellation interrupts pacing and I/O.
 Both USD estimates can remain zero for Free Tier workflows; request limits still apply. Local estimates are not Google prices, a paid/free-tier detector, or a provider-enforced billing cap. The app never enables billing; an already billable Google project can incur charges.
@@ -52,12 +54,35 @@ For multiple categories, COPY creates separate verified copies and retains the s
 The existing VerifiedTransferEngine, SafeFileMover, OriginalMediaAccess and timestamp implementation remain unchanged. SHA-256 readback, collision handling, original bytes, separate filesystem/embedded timestamps, mtime warnings, cancellation and durable journals remain in force. Source deletion requires a verified final destination and the original engine's durability/timestamp conditions.
 Matching approved/completed/recovery plans are rejected rather than silently producing another copy. Stale decisions, revoked organization permission, changed bytes/settings/categories, failed prior copies and interrupted operations stop execution. Recovery records uncertainty and never resumes source deletion automatically. Cancel explicitly revokes unstarted plans and sets a durable cancellation request for an active plan; the deletion checkpoint rechecks this approval.
 
+## Defects found and corrected during verification
+
+- HIGH: AQ. keys were rejected by the same character class in the Compose Save enabled condition, GeminiKeyVault.save and GeminiHttpTransport.request. All three use the shared ApiKeyInput policy. Saving is independent of model selection and is distinct from authentication.
+- HIGH: Per-instance synchronization did not protect independent vault instances sharing one AtomicFile. A concurrent read could discard a replacement. The canonical-file process lock protects the full credential/revision transaction; the application has no separately declared service process.
+- MEDIUM: Generic 'billing' text previously overrode HTTP 429/5xx and suppressed quota retries. HTTP status now takes precedence; quota messages linking to billing help retain QUOTA and bounded retry/backoff. A mocked realistic response verifies reservations, delays, catalog state and server state.
+- MEDIUM: Settings needed IME insets so key actions remain reachable while typing under edge-to-edge display.
+- MEDIUM: Text-only navigation selectors, generic UiScrollable lookup and manually finishing Activities produced intermittent installed-UI failures. Tests now use stable action/viewport IDs, bounded real swipes and ActivityScenario lifecycle synchronization. Empty-disabled, AQ-enabled, Save, Activity recreation, Replace and Delete assertions remain.
+- MEDIUM: The gallery smoke test could find a thumbnail but fail to reach the full-image button in a shorter viewport. It now scrolls the actual review viewport and waits for bitmap decode in both the gallery and full-screen dialog. Original fixture bytes must remain identical.
+- Release test boundary: DataStore and lifecycle APIs called from the separately packaged acceptance APK need preserved runtime contracts. Narrow lifecycle keeps join the existing DataStore/Room/Kotlin/coroutines rules. R8 and resource shrinking remain enabled. Mock response construction uses Android org.json rather than a serialization builder removed as unused by R8.
+- Test diagnostics: Crash-buffer logcat is captured inside the failing emulator command before the runner terminates the device. A process crash is not dismissed as a passed or skipped test.
+- The previous source screen required a destination even for analysis; initial scanning now requires only a source. Physical destination safety checks remain in the explicit operation preview. Category Upsert preserves membership links.
+
+Implementation references:
+- https://developer.android.com/reference/android/util/AtomicFile
+- https://developer.android.com/guide/components/activities/testing
+- https://developer.android.com/develop/ui/compose/testing/interoperability
+
+## Executed verification
+
+__FINAL_VERIFICATION__
+
+At the time of the preceding code commit (95c74057dcb4bf6ed4cdbaf9069c305f4851f8e3), GitHub Actions produced all four APKs, passed 45 JVM and 20 Python tests, and passed four PR emulator configurations. API 34 debug failed the installed-gallery lookup; a separate push run also exposed installed-key lookup and an interrupted release test process. These are not recorded as a fully passed matrix. The lifecycle/viewport/decoded-image changes above require a fresh complete run.
+
 ## Tests and acceptance limits
 Automated suites include mocked JSON/HTTP policy, API input validation, Room migration and membership, no-file-write virtual correction, explicit multi-copy and copy-before-move, stale-preview rejection, cache/reanalysis scope, quota pending/resume, Keystore reopen/encryption/delete, and installed Compose Save/Replace/Delete via UI Automator. Existing safety, decoder, original-byte, timestamp, recovery, JVM and Python tests remain.
 CI results and artifact links are recorded after execution; source inspection alone is not a pass.
 The local attachment search found two logo JPEGs only. The ten illustrative evaluation photographs and labeled 36-photo collection are not available to this test process. No semantic accuracy result or improvement is claimed.
 No live user-credential call or physical-device test has been performed. Emulator tests and synthetic fixtures cannot establish actual photographic accuracy, account quota eligibility, physical ARM/OEM behavior or all SAF-provider behavior.
-APKs use QA/debug signing for installation testing, not production signing. Android minSdk 34, compile/target 35, R8/resource shrinking, the official launcher icon, separate ARMv7/ARM64 artifacts and Android 15 4 KB/16 KB CI configurations are preserved.
+APKs use QA/debug signing for installation testing, not production signing. Stable distribution signing and an in-place upgrade from the user's installed signing identity have not been verified; hosted-runner debug signing identities may differ. Android minSdk 34, compile/target 35, R8/resource shrinking, the official launcher icon, separate ARMv7/ARM64 artifacts and Android 15 4 KB/16 KB CI configurations are preserved.
 
 ## Phone-only acceptance steps
 1. Install the appropriate QA APK from the Actions artifact ZIP; no Android Studio is needed.
