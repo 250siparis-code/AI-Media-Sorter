@@ -143,16 +143,17 @@ object CloudProtocol {
                 .filter { it.jsonObject["thought"]?.jsonPrimitive?.booleanOrNull != true }
                 .mapNotNull { it.jsonObject["text"]?.jsonPrimitive?.content }.joinToString("")
             stage=AnalysisCode.RESPONSE_JSON
-            val obj=Json.parseToJsonElement(text).jsonObject
+            val payload=Json.parseToJsonElement(text)
             stage=AnalysisCode.RESPONSE_SCHEMA
+            val obj=payload.jsonObject
             require(obj.keys==setOf("categories","subjects","pose","scene","details","reason","review_status"))
             fun str(v: JsonElement?,max: Int=240,empty: Boolean=false): String {
                 val p=v!!.jsonPrimitive;require(p.isString)
                 val s=p.content;require(s.length in (if(empty) 0 else 1)..max && s.none { it.isISOControl() })
                 return s
             }
-            stage=AnalysisCode.RESPONSE_CATEGORIES
             val cats=obj["categories"]!!.jsonArray.map { str(it,160) }
+            stage=AnalysisCode.RESPONSE_CATEGORIES
             require(cats.size<=minOf(allowed.size,50) && cats.distinct().size==cats.size && cats.all { it in allowed })
             stage=AnalysisCode.RESPONSE_SCHEMA
             val subjects=obj["subjects"]!!.jsonArray.map {

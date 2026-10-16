@@ -18,6 +18,7 @@ import java.security.MessageDigest;
 public final class FixtureDocumentsProvider extends DocumentsProvider {
     private boolean revoke, corrupt, timestampUnsupported;
     private String readyToken;
+    private android.net.Uri publishedPhoto;
     private File base() { return new File(getContext().getFilesDir(), "qa-documents"); }
     @Override public boolean onCreate() { return true; }
     private void enforceCaller() {
@@ -60,9 +61,54 @@ public final class FixtureDocumentsProvider extends DocumentsProvider {
             return value.toString();
         } catch (Exception error) { throw new IllegalStateException(error); }
     }
+    private void removePublishedPhoto() {
+        if (publishedPhoto != null) {
+            getContext().getContentResolver().delete(publishedPhoto, null, null);
+            publishedPhoto = null;
+        }
+    }
+    private Bundle publishPhotograph() {
+        removePublishedPhoto();
+        File photo = new File(base(), "public-photo.jpg");
+        try {
+            try (java.io.InputStream input = getContext().getAssets().open("real_photo_fruits.jpg");
+                    java.io.OutputStream output = new java.io.FileOutputStream(photo)) {
+                byte[] buffer = new byte[8192]; int n;
+                while ((n = input.read(buffer)) != -1) output.write(buffer, 0, n);
+            }
+            android.media.ExifInterface exif = new android.media.ExifInterface(photo.getPath());
+            exif.setAttribute(android.media.ExifInterface.TAG_GPS_LATITUDE, "0/1,0/1,0/1");
+            exif.setAttribute(android.media.ExifInterface.TAG_GPS_LATITUDE_REF, "N");
+            exif.setAttribute(android.media.ExifInterface.TAG_GPS_LONGITUDE, "0/1,0/1,0/1");
+            exif.setAttribute(android.media.ExifInterface.TAG_GPS_LONGITUDE_REF, "E");
+            exif.saveAttributes();
+            android.content.ContentValues values = new android.content.ContentValues();
+            values.put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "aims-qa-" + java.util.UUID.randomUUID() + ".jpg");
+            values.put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+            values.put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/AIMS-Isolated-QA");
+            publishedPhoto = getContext().getContentResolver().insert(
+                android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+            if (publishedPhoto == null) throw new IOException("Isolated MediaStore fixture unavailable");
+            try (java.io.InputStream input = new java.io.FileInputStream(photo);
+                    java.io.OutputStream output = getContext().getContentResolver().openOutputStream(publishedPhoto)) {
+                if (output == null) throw new IOException("Isolated fixture write unavailable");
+                byte[] buffer = new byte[8192]; int n;
+                while ((n = input.read(buffer)) != -1) output.write(buffer, 0, n);
+            }
+            String testPackage = getContext().getPackageName();
+            getContext().grantUriPermission(testPackage.substring(0, testPackage.length() - 5), publishedPhoto,
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            Bundle result = new Bundle();
+            result.putString("uri", publishedPhoto.toString());
+            result.putString("hash", hash(photo));
+            return result;
+        } catch (IOException error) { throw new IllegalStateException("Isolated fixture setup failed", error); }
+    }
     @Override public Bundle call(String method, String arg, Bundle extras) {
         enforceCaller();
         if ("qa.reset".equals(method)) {
+            long identity = Binder.clearCallingIdentity();
+            try { removePublishedPhoto(); } finally { Binder.restoreCallingIdentity(identity); }
             remove(base());
             if (!new File(base(), "source").mkdirs() || !new File(base(), "destination").mkdirs())
                 throw new IllegalStateException("Fixture directories unavailable");
@@ -91,7 +137,15 @@ public final class FixtureDocumentsProvider extends DocumentsProvider {
             if (source.exists()) state.putString("sourceHash", hash(source));
             return state;
         }
-        if ("qa.cleanup".equals(method)) { remove(base()); return new Bundle(); }
+        if ("qa.publishPhotograph".equals(method)) {
+            long identity = Binder.clearCallingIdentity();
+            try { return publishPhotograph(); } finally { Binder.restoreCallingIdentity(identity); }
+        }
+        if ("qa.cleanup".equals(method)) {
+            long identity = Binder.clearCallingIdentity();
+            try { removePublishedPhoto();remove(base());return new Bundle(); }
+            finally { Binder.restoreCallingIdentity(identity); }
+        }
         return super.call(method, arg, extras);
     }
     @Override public Cursor queryRoots(String[] projection) {

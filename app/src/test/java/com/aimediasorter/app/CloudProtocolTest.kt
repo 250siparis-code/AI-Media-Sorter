@@ -159,6 +159,7 @@ class CloudProtocolTest {
             Triple(response(finish="MAX_TOKENS"),setOf("food"),AnalysisCode.RESPONSE_MAX_TOKENS),
             Triple(response(finish="OTHER"),setOf("food"),AnalysisCode.RESPONSE_FINISH),
             Triple(response("not JSON"),setOf("food"),AnalysisCode.RESPONSE_JSON),
+            Triple(response("[]"),setOf("food"),AnalysisCode.RESPONSE_SCHEMA),
             Triple(response(decision.replace("CLEAR","MAYBE")),setOf("food"),AnalysisCode.RESPONSE_SCHEMA),
             Triple(response(decision.replace("food","unknown")),setOf("food"),AnalysisCode.RESPONSE_CATEGORIES),
             Triple(response(decision.replace("""["food"]""","""["food","food"]""")),setOf("food"),AnalysisCode.RESPONSE_CATEGORIES),
