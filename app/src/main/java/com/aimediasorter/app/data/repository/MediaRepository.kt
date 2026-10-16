@@ -189,6 +189,7 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
             )
             db.analysisSessionDao().upsertSession(session)
             _analysisProgress.value = LiveAnalysisProgress(isRunning = true, isDiscovering = true)
+            var classified = 0
             var processed = 0
             var skipped = 0
             var uncertain = 0
@@ -215,7 +216,7 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                     try {
                         sourceChecksum = checksum(candidate.uri.toString(), candidate.filePath)
                     } catch (cancelled: CancellationException) { throw cancelled }
-                    catch (_: Exception) { failed++ }
+                    catch (_: Exception) { /* Original-byte failure is recorded once as an analysis failure below. */ }
                     val fingerprint = digest(candidate.uri.toString() + ";" + sourceChecksum + ";" + configuration)
                     if (!forceReanalysis && sourceChecksum != null && existing != null &&
                         existing.sourceRootUri == settings.sourceUri && existing.quickFingerprint == fingerprint &&
@@ -251,7 +252,6 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                             }
                         } catch (cancelled: CancellationException) { throw cancelled }
                         catch (error: Exception) {
-                            failed++
                             ClassificationScoreMetrics("__failed__", "Analysis Failed", 0f, 0f, 0f,
                                 needsManualReview = true, primarySubjectNote = "Decoding or analysis failed.",
                                 inferenceEngine="GEMINI",analysisStatus="FAILED",analysisModel=settings.cloudOptions.model)
@@ -310,16 +310,18 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                             val effective=if(preserveManual) preservedLinks else metrics.proposedCategoryIds
                             db.virtualGalleryDao().insertLinks(effective.map { MediaCategoryLink(id,it,"EFFECTIVE") })
                         }
-                        if(metrics.analysisStatus=="FAILED") failed++
                     }
                     processed++
+                    val currentRow=db.mediaItemDao().getByUri(candidate.uri.toString())
+                    if(currentRow?.analysisStatus=="FAILED") failed++ else if(currentRow?.analysisStatus!="PENDING") classified++
                     session = session.copy(totalScanned = _analysisProgress.value.totalFiles,
-                        totalClassified = processed, uncertainCount = uncertain, failedCount = failed)
+                        totalClassified = classified, uncertainCount = uncertain, failedCount = failed)
                     db.analysisSessionDao().upsertSession(session)
                     val currentCategory = db.mediaItemDao().getByUri(candidate.uri.toString())?.effectiveCategoryName.orEmpty()
                     _analysisProgress.update { it.copy(processedFiles = processed, skippedUnchangedCount = skipped,
                         currentDetectedCategory = currentCategory) }
                 }
+                _analysisProgress.update { it.copy(totalFiles=processed) }
                 session = session.copy(completedAtMs = System.currentTimeMillis(), totalScanned = processed, status = "COMPLETED")
                 db.analysisSessionDao().upsertSession(session)
             } catch (cancelled: CancellationException) {
@@ -370,6 +372,9 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                             item.sha256Checksum,item.decisionVersion,destination,cat.destinationSubfolder,group,size))
                     }
                 }
+            }
+            require(steps.map { Triple(it.mediaId,it.destinationRoot,it.destinationFolder) }.distinct().size==steps.size) {
+                "Two categories use the same physical destination. Choose distinct destinations before copying."
             }
             require(steps.size<=100) { "A physical batch supports at most 100 destination operations. Reduce selection." }
             OperationPreview(settings,steps,names)
@@ -450,6 +455,9 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                             require(now.operationMode==OperationMode.MOVE_FILES && now.sourceUri==live.sourceUri &&
                                 now.destinationUri==live.destinationUri && now.timestampPolicy==live.timestampPolicy &&
                                 row!=null && row.decisionVersion==step.decisionVersion && !row.isExcludedFromTransfer)
+                            val currentCat=db.categoryDao().getAllCategories().firstOrNull { it.id==step.categoryId }
+                            require(currentCat?.isEnabled==true && currentCat.destinationSubfolder==step.destinationFolder &&
+                                (currentCat.customDestinationUri?.takeIf { it.isNotBlank() } ?: now.destinationUri)==step.destinationRoot)
                             for(copy in successful.filter { it.mediaId==step.mediaId })
                                 require(copy.destinationUri!=null && checksum(copy.destinationUri)==step.sourceHash)
                         }
@@ -495,6 +503,7 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                 _transferProgress.update { it.copy(statusMessage=error.message.orEmpty()) }
                 throw error
             } finally {
+                withContext(NonCancellable) { db.virtualGalleryDao().recoverRunningPlans() }
                 _transferProgress.update { it.copy(isRunning=false) }
             }
         }

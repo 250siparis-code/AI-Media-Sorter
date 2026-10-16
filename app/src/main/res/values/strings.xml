@@ -309,4 +309,5 @@
     <string name="physical_confirm_checkbox">I explicitly approve these physical Copy/Move operations.</string>
     <string name="physical_execute">Approve and execute</string>
     <string name="physical_empty">No physical operations approved yet.</string>
+    <string name="cloud_interval">Minimum seconds between generation attempts (0–120); Free Tier quotas vary by model</string>
 </resources>

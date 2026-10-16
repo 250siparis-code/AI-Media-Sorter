@@ -45,6 +45,7 @@ class CloudAnalysisService(context: Context,
     /** Explicit button only; sends one synthetic image, never a user photo. Uses persisted quotas. */
     suspend fun testSelectedModel(options: CloudOptions) {
         val credential=try { vault.snapshot() } catch(_: Exception) { throw CloudFailure(CloudErrorKind.AUTH) }
+        state.unverifyModel(credential.revision,options.model)
         val catalog=refreshModels()
         if(options.model !in catalog) throw CloudFailure(CloudErrorKind.MODEL)
         val signature="explicit-synthetic-model-test:"+options.model+":"+credential.revision
@@ -58,7 +59,7 @@ class CloudAnalysisService(context: Context,
         val cat=CategoryEntity("test_scene","Test scene","A synthetic color tile",0,"label",1,destinationSubfolder="Test")
         val result=client.classify(credential.secret,limits,listOf(cat),listOf(CloudImage(bytes))) {
             if(vault.revision!=credential.revision) throw CloudFailure(CloudErrorKind.CONSENT)
-            state.reserve(batch,signature,credential.revision)
+            kotlinx.coroutines.delay(state.reserve(batch,signature,credential.revision,options.minimumIntervalSeconds*1000L))
         }
         if(vault.revision!=credential.revision) throw CloudFailure(CloudErrorKind.CONSENT)
         state.recordUsage(result)
@@ -78,15 +79,19 @@ class CloudAnalysisService(context: Context,
             if(decision==null) {
                 if(batch.isBlank()) throw CloudFailure(CloudErrorKind.CONSENT)
                 liveCheck()
+                state.checkAvailable(batch,signature,vault.revision)
                 state.begin(batch,cacheKey)
                 val images=encoder.images(uri,path,isVideo,orientation,mirrored)
                 sampledTimes=images.mapNotNull { it.timestampMs }.joinToString(",")
                 val credential=try { vault.snapshot() } catch(_: Exception) { throw CloudFailure(CloudErrorKind.AUTH) }
-                val response=client.classify(credential.secret,o,categories,images) {
+                var response=client.classify(credential.secret,o,categories,images) {
                     liveCheck()
                     if(vault.revision!=credential.revision) throw CloudFailure(CloudErrorKind.CONSENT)
-                    state.reserve(batch,signature,credential.revision)
+                    kotlinx.coroutines.delay(state.reserve(batch,signature,credential.revision,o.minimumIntervalSeconds*1000L))
+                    liveCheck()
+                    if(vault.revision!=credential.revision) throw CloudFailure(CloudErrorKind.CONSENT)
                 }
+                if(isVideo && images.size<2) response=response.copy(decision=response.decision.copy(review_status="REQUIRED"))
                 liveCheck()
                 if(vault.revision!=credential.revision) throw CloudFailure(CloudErrorKind.CONSENT)
                 state.complete(batch,cacheKey,response);decision=response.decision
@@ -105,12 +110,12 @@ class CloudAnalysisService(context: Context,
         } catch(cancelled: CancellationException) { throw cancelled }
         catch(error: CloudFailure) {
             if(batch.isNotBlank() && cacheKey.isNotBlank()) state.failed(batch,cacheKey,error.kind)
-            return failed(error.message.orEmpty(),o.model)
+            return failed(error.message.orEmpty(),o.model,if(error.kind in setOf(CloudErrorKind.BUDGET,CloudErrorKind.CONSENT)) "PENDING" else "FAILED")
         } catch(_: Exception) {
             if(batch.isNotBlank() && cacheKey.isNotBlank()) state.failed(batch,cacheKey,CloudErrorKind.RESPONSE)
             return failed(CloudFailure(CloudErrorKind.RESPONSE).message.orEmpty(),o.model)
         }
     }
-    private fun failed(note: String,model: String)=ClassificationScoreMetrics("__failed__","Analysis Failed",0f,0f,0f,
-        needsManualReview=true,primarySubjectNote=note,inferenceEngine="GEMINI",analysisStatus="FAILED",analysisModel=model)
+    private fun failed(note: String,model: String,status: String="FAILED")=ClassificationScoreMetrics("__failed__","Analysis Failed",0f,0f,0f,
+        needsManualReview=true,primarySubjectNote=note,inferenceEngine="GEMINI",analysisStatus=status,analysisModel=model)
 }

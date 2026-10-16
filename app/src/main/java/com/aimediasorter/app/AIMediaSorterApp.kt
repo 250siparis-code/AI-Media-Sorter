@@ -21,7 +21,9 @@ class AIMediaSorterApp : Application(), ImageLoaderFactory {
             .components {
                 add(VideoFrameDecoder.Factory())
             }
-            .crossfade(true)
+            .memoryCache { coil.memory.MemoryCache.Builder(this).maxSizePercent(0.15).build() }
+            .diskCache(null) // Local private thumbnails remain in bounded memory only.
+            .crossfade(false)
             .build()
     }
 }

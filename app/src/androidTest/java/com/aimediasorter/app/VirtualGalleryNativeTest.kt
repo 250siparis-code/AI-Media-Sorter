@@ -53,7 +53,7 @@ class VirtualGalleryNativeTest {
         suspend fun configure() {
             repository.ensureDefaultCategories()
             preferences.updateSourceUri(source.path);preferences.updateDestinationUri(destination.path)
-            preferences.updateCloudOptions(CloudOptions(model="models/gemini-mock",maxRequests=3,maxDailyRequests=10,retries=0))
+            preferences.updateCloudOptions(CloudOptions(model="models/gemini-mock",maxRequests=3,maxDailyRequests=10,retries=0,minimumIntervalSeconds=0))
             cloud.vault.save("AQ."+"SyntheticCredential".repeat(20))
             cloud.state.replaceModels(cloud.vault.revision,listOf("models/gemini-mock"))
             cloud.state.markModelVerified(cloud.vault.revision,"models/gemini-mock")
@@ -133,6 +133,47 @@ class VirtualGalleryNativeTest {
             assertTrue(f.destination.listFiles()!!.isEmpty())
         } finally { f.close() }
     }
+    @Test fun exhaustedBatchLeavesUnsentMediaPendingAndResumeSkipsPreviouslyAnalyzedBytes()=runBlocking {
+        val f=Fixture(context)
+        try {
+            f.configure()
+            val second=File(f.source,"second.png")
+            Bitmap.createBitmap(48,48,Bitmap.Config.ARGB_8888).apply {
+                eraseColor(Color.GREEN);second.outputStream().use { compress(Bitmap.CompressFormat.PNG,100,it) };recycle()
+            }
+            val o=f.preferences.settingsFlow.first().cloudOptions.copy(maxRequests=1)
+            f.preferences.updateCloudOptions(o)
+            f.analyze()
+            assertEquals(1,f.requests)
+            var items=f.database.mediaItemDao().getCurrentMediaItems(f.source.path)
+            assertEquals(1,items.count { it.analysisStatus=="PENDING" })
+            assertEquals(1,f.database.analysisSessionDao().latestForSource(f.source.path)!!.totalClassified)
+            f.analyze()
+            assertEquals(2,f.requests)
+            items=f.database.mediaItemDao().getCurrentMediaItems(f.source.path)
+            assertEquals(0,items.count { it.analysisStatus=="PENDING" })
+            assertTrue(f.image.exists());assertTrue(second.exists());assertTrue(f.destination.listFiles()!!.isEmpty())
+        } finally { f.close() }
+    }
+
+    @Test fun explicitReanalysisUploadsOnlyTheSelectedMediaId()=runBlocking {
+        val f=Fixture(context)
+        try {
+            f.configure()
+            Bitmap.createBitmap(48,48,Bitmap.Config.ARGB_8888).apply {
+                eraseColor(Color.GREEN);File(f.source,"second.png").outputStream().use { compress(Bitmap.CompressFormat.PNG,100,it) };recycle()
+            }
+            f.analyze();assertEquals(2,f.requests)
+            val selected=setOf(f.database.mediaItemDao().getCurrentMediaItems(f.source.path).first().id)
+            val settings=f.preferences.settingsFlow.first()
+            val batch=f.repository.authorizeCloudBatch(settings,selected,true)
+            f.repository.executeMediaScanAndAnalysis(settings,batch,selected,true)
+            assertEquals(3,f.requests)
+            assertEquals(2,f.database.mediaItemDao().getCurrentMediaItems(f.source.path).size)
+            assertTrue(f.destination.listFiles()!!.isEmpty())
+        } finally { f.close() }
+    }
+
     @Test fun staleDecisionsBlockPreviewApprovalAndMultiMoveCopiesBeforeDeletion()=runBlocking {
         val f=Fixture(context)
         try {

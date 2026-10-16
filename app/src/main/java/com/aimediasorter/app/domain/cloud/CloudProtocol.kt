@@ -17,11 +17,12 @@ import java.util.Base64
     val maxOutputTokens: Int = 4096,
     val estimatedMicrosPerAttempt: Long = 0,
     val maxEstimatedBatchMicros: Long = 0,
-    val retries: Int = 1
+    val retries: Int = 1,
+    val minimumIntervalSeconds: Int = 15
 ) {
     fun validate() {
         require(maxRequests in 1..100 && maxDailyRequests in 1..1000)
-        require(maxOutputTokens in 256..8192 && retries in 0..2)
+        require(maxOutputTokens in 256..8192 && retries in 0..2 && minimumIntervalSeconds in 0..120)
         require(estimatedMicrosPerAttempt in 0..100_000_000 && maxEstimatedBatchMicros in 0..1_000_000_000)
         require((estimatedMicrosPerAttempt == 0L && maxEstimatedBatchMicros == 0L) ||
             (estimatedMicrosPerAttempt > 0 && maxEstimatedBatchMicros >= estimatedMicrosPerAttempt))

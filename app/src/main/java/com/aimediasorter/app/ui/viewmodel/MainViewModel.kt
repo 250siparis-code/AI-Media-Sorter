@@ -20,6 +20,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import java.util.zip.ZipEntry
@@ -139,16 +141,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
 
+    private val cloudSettingsMutex=Mutex()
+    private fun launchCloud(block: suspend ()->Unit)=launchSafely { cloudSettingsMutex.withLock { block() } }
+
     private val _cloudConsent = MutableStateFlow(false)
     val cloudConsent = _cloudConsent.asStateFlow()
     private val _cloudUi = MutableStateFlow(CloudUiState())
     val cloudUi = _cloudUi.asStateFlow()
-    fun refreshCloudLocalState() { launchSafely {
+    fun refreshCloudLocalState() { launchCloud {
         _cloudUi.value = _cloudUi.value.copy(hasKey=repo.cloud.vault.hasKey(),
             models=repo.cloud.state.models(repo.cloud.vault.revision), usage=repo.cloud.state.usage(),
             modelVerified=repo.cloud.state.modelVerified(repo.cloud.vault.revision,settingsRepo.settingsFlow.first().cloudOptions.model))
     } }
-    fun setCloudOptions(options: CloudOptions) { launchSafely {
+    fun setCloudOptions(options: CloudOptions) { launchCloud {
         options.validate()
         repo.cloud.state.revokeAll()
         workManager.cancelUniqueWork(MediaAnalysisWorker.WORK_NAME)
@@ -156,8 +161,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _cloudUi.value=_cloudUi.value.copy(message="MODEL_SAVED",failure=null,error=null,
             modelVerified=repo.cloud.state.modelVerified(repo.cloud.vault.revision,options.model))
     } }
-    fun saveGeminiKey(value: String) { launchSafely {
-        if (_cloudUi.value.busy) return@launchSafely
+    fun saveGeminiKey(value: String) { launchCloud {
+        if (_cloudUi.value.busy) return@launchCloud
         _cloudUi.value=_cloudUi.value.copy(busy=true,error=null,message=null,failure=null)
         try {
             workManager.cancelUniqueWork(MediaAnalysisWorker.WORK_NAME)
@@ -170,8 +175,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         catch (_: Exception) { _cloudUi.value=_cloudUi.value.copy(error="SAVE") }
         finally { _cloudUi.value=_cloudUi.value.copy(busy=false) }
     } }
-    fun clearGeminiKey() { launchSafely {
-        if (_cloudUi.value.busy) return@launchSafely
+    fun clearGeminiKey() { launchCloud {
+        if (_cloudUi.value.busy) return@launchCloud
         _cloudUi.value=_cloudUi.value.copy(busy=true,error=null,message=null,failure=null)
         try {
             workManager.cancelUniqueWork(MediaAnalysisWorker.WORK_NAME)
@@ -181,7 +186,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         catch (_: Exception) { _cloudUi.value=_cloudUi.value.copy(error="DELETE") }
         finally { _cloudUi.value=_cloudUi.value.copy(busy=false) }
     } }
-    fun refreshGeminiModels() { launchSafely {
+    fun refreshGeminiModels() { launchCloud {
         _cloudUi.value = _cloudUi.value.copy(busy=true,error=null,message=null,failure=null)
         try {
             val models=repo.cloud.refreshModels()
@@ -191,9 +196,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         catch (_: Exception) { _cloudUi.value=_cloudUi.value.copy(failure=CloudErrorKind.RESPONSE) }
         finally { _cloudUi.value=_cloudUi.value.copy(busy=false) }
     } }
-    fun testGeminiModel() { launchSafely {
-        if(_cloudUi.value.busy) return@launchSafely
-        _cloudUi.value=_cloudUi.value.copy(busy=true,error=null,failure=null,message=null)
+    fun testGeminiModel() { launchCloud {
+        if(_cloudUi.value.busy) return@launchCloud
+        _cloudUi.value=_cloudUi.value.copy(busy=true,error=null,failure=null,message=null,modelVerified=false)
         try {
             repo.cloud.testSelectedModel(settingsRepo.settingsFlow.first().cloudOptions)
             _cloudUi.value=_cloudUi.value.copy(message="MODEL_OK",usage=repo.cloud.state.usage(),modelVerified=true)
