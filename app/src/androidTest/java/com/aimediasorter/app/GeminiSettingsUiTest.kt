@@ -3,6 +3,7 @@ package com.aimediasorter.app
 import android.Manifest
 import android.content.Intent
 import android.os.SystemClock
+import android.view.KeyEvent
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.*
@@ -45,11 +46,22 @@ class GeminiSettingsUiTest {
                 if(matches) return
                 SystemClock.sleep(50)
             } while(SystemClock.uptimeMillis()<deadline)
-            fail("Encrypted key persistence did not complete.")
+            val actual=runCatching { GeminiKeyVault(context).read() }.getOrNull()
+            val inputs=device.findObjects(By.clazz("android.widget.EditText")).map {
+                "chars="+(it.text?.length ?: 0)+",focused="+it.isFocused
+            }
+            val saveEnabled=runCatching { device.findObject(By.res("gemini-save-key"))?.isEnabled }.getOrNull()
+            val inlineFailure=device.hasObject(By.textContains("Secure saving failed")) ||
+                device.hasObject(By.textContains("Güvenli kayıt başarısız"))
+            fail("Encrypted key persistence timed out; expectedLength="+(expected?.length ?: 0)+
+                ",storedLength="+(actual?.length ?: 0)+",saveEnabled="+saveEnabled+
+                ",inlineFailure="+inlineFailure+",inputs="+inputs)
         }
         fun saveKey(value: String) {
             val field=control("gemini-key-input")
             field.click()
+            device.pressKeyCode(KeyEvent.KEYCODE_A,KeyEvent.META_CTRL_ON)
+            device.pressKeyCode(KeyEvent.KEYCODE_DEL)
             // Fixed synthetic fixture only: exercise actual Android key input rather than
             // setting text on an outer Compose accessibility node.
             device.executeShellCommand("input text "+value)
