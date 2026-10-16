@@ -57,6 +57,19 @@ class DiagnosticLogNativeTest {
             assertTrue(log.recent.value.storageFailures>0 || recovered?.events?.any { it.analysisCode=="LOCAL_IMAGE_DECODE" }==true)
         } finally { log.close();context.deleteDatabase(name);file.delete() }
     }
+    @Test fun finalSummarySurvivesOrdinaryEventQueueOverflow()=runBlocking {
+        val name=name();val log=DiagnosticLog(context,name)
+        val batch=UUID.randomUUID().toString()
+        try {
+            repeat(5000) { log.record(event(batch)) }
+            log.record(event(batch).copy(kind=DiagnosticKind.ANALYSIS_BATCH,stage=DiagnosticStage.BATCH_SUMMARY,
+                metrics=mapOf(DiagnosticMetric.TOTAL_FILES to 36,DiagnosticMetric.FAILED to 36,DiagnosticMetric.REQUESTS_SENT to 0)))
+            val snapshot=withTimeout(30000) { log.snapshot() }
+            assertTrue(snapshot.droppedEvents>0)
+            assertEquals(batch,snapshot.summaries.first().batchId)
+            assertEquals(36L,snapshot.summaries.first().metrics[DiagnosticMetric.FAILED])
+        } finally { log.close();context.deleteDatabase(name) }
+    }
     @Test fun crashMarkerContainsOnlyTypedMetadataAndIsRecoverable() {
         val file=AtomicFile(File(context.cacheDir,"crash-marker-"+UUID.randomUUID()))
         try {
