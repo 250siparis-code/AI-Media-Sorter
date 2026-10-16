@@ -124,7 +124,9 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
     private fun digest(value: String): String = MessageDigest.getInstance("SHA-256")
         .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
     private fun signature(settings: AppSettings, categories: List<CategoryEntity>): String =
-        digest(CloudProtocol.VERSION + ";" + json.encodeToString(categories.sortedBy { it.id }) + ";" +
+        digest(CloudProtocol.VERSION + ";" + settings.sourceUri + ";" + settings.includeSubfolders + ";" +
+            settings.mediaTypeFilter.name + ";" + settings.enabledExtensions.sorted().joinToString(",") + ";" +
+            json.encodeToString(categories.sortedBy { it.id }) + ";" +
             json.encodeToString(settings.cloudOptions.copy(mode=AnalysisMode.GEMINI)) + ";" + cloud.vault.revision)
 
 

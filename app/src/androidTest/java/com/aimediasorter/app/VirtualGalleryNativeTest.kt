@@ -177,6 +177,22 @@ class VirtualGalleryNativeTest {
         } finally { f.close() }
     }
 
+    @Test fun consentForOneSelectedSourceCannotAuthorizeAnotherSource()=runBlocking {
+        val f=Fixture(context)
+        try {
+            f.configure()
+            val old=f.preferences.settingsFlow.first()
+            val batch=f.repository.authorizeCloudBatch(old)
+            val other=File(f.root,"other-source").apply { mkdirs() }
+            f.image.copyTo(File(other,"other.png"))
+            f.preferences.updateSourceUri(other.path)
+            f.repository.executeMediaScanAndAnalysis(f.preferences.settingsFlow.first(),batch)
+            assertEquals(0,f.requests)
+            assertEquals("PENDING",f.database.mediaItemDao().getCurrentMediaItems(other.path).single().analysisStatus)
+            assertTrue(f.destination.listFiles()!!.isEmpty());assertTrue(f.image.exists())
+        } finally { f.close() }
+    }
+
     @Test fun analysisNeedsNoDestinationAndInvalidPhysicalDestinationCannotBlockVirtualResults()=runBlocking {
         val f=Fixture(context)
         try {
