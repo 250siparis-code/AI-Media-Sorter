@@ -49,14 +49,14 @@ class RealPhotoDiagnosticsTest {
             com.aimediasorter.app.data.diagnostics.Diagnostics.initialize(context).snapshot()
             fixture.configure()
             val before=fixture.photo.readBytes()
-            fixture.reply="""{"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":"AQ.untrusted-invalid-json"}]}}]}"""
+            fixture.reply="""{"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":"{\"reason\":\"AQ.untrusted-invalid-json\""}]}}]}"""
             val batch=fixture.analyze()
             val snapshot=com.aimediasorter.app.data.diagnostics.Diagnostics.initialize(context).snapshot()
             val prepared=com.aimediasorter.app.domain.diagnostics.DiagnosticExport.prepare(snapshot,
                 com.aimediasorter.app.domain.diagnostics.DiagnosticScope.LAST_ANALYSIS,
                 com.aimediasorter.app.domain.diagnostics.DiagnosticFormat.JSON,
                 com.aimediasorter.app.domain.diagnostics.DiagnosticEnvironment("qa",5,"14",34,"emulator"))
-            val report=com.aimediasorter.app.domain.diagnostics.DiagnosticPrivacy.json.decodeFromString<com.aimediasorter.app.domain.diagnostics.DiagnosticReport>(prepared.text)
+            val report=com.aimediasorter.app.domain.diagnostics.DiagnosticExport.decodeReport(prepared.text)
             assertEquals(batch,report.batchId)
             val file=report.files.single()
             assertEquals(com.aimediasorter.app.domain.diagnostics.DiagnosticRequestStatus.SENT,file.requestStatus)
@@ -67,6 +67,35 @@ class RealPhotoDiagnosticsTest {
             assertEquals(1L,report.batchSummary!!.metrics[com.aimediasorter.app.domain.diagnostics.DiagnosticMetric.FAILED])
             assertFalse(prepared.text.contains(fixture.photo.name));assertFalse(prepared.text.contains(fixture.source.path))
             assertFalse(prepared.text.contains("AQ.untrusted"));assertArrayEquals(before,fixture.photo.readBytes())
+        } finally { fixture.close() }
+    }
+    @Test fun savedPreLoggerFailureCanBeExportedWithoutReadingOrReanalyzingMedia()=runBlocking {
+        val fixture=Fixture(context,instrumentation.context)
+        try {
+            fixture.configure();fixture.analyze()
+            val row=fixture.item()
+            fixture.db.mediaItemDao().updateMediaItem(row.copy(analysisStatus="FAILED",diagnosticCode="UNRECORDED",
+                apiRequestsSent=-1,requestReservations=-1,responseHttpStatus=0,
+                primarySubjectNote="AQ.synthetic-secret /storage/private.jpg untrusted-provider-text"))
+            val session=fixture.db.analysisSessionDao().latest()!!
+            fixture.db.analysisSessionDao().upsertSession(session.copy(totalClassified=0,uncertainCount=0,failedCount=1,
+                successfulCount=-1,pendingCount=-1,apiRequestsSent=-1))
+            val requests=fixture.posts.size
+            // Make source access impossible for this call; the export must use saved metadata only.
+            assertTrue(fixture.photo.delete())
+            val stored=fixture.repo.storedAnalysisDiagnostics()!!
+            assertNull(fixture.repo.storedAnalysisDiagnostics(System.currentTimeMillis()+1000))
+            val prepared=com.aimediasorter.app.domain.diagnostics.DiagnosticExport.prepare(stored.second,
+                com.aimediasorter.app.domain.diagnostics.DiagnosticScope.LAST_ANALYSIS,
+                com.aimediasorter.app.domain.diagnostics.DiagnosticFormat.JSON,
+                com.aimediasorter.app.domain.diagnostics.DiagnosticEnvironment("qa",5,"14",34,"emulator"))
+            val report=com.aimediasorter.app.domain.diagnostics.DiagnosticExport.decodeReport(prepared.text)
+            assertTrue(report.includesHistoricalStoredResults)
+            assertEquals(1L,report.batchSummary!!.metrics[com.aimediasorter.app.domain.diagnostics.DiagnosticMetric.FAILED])
+            assertFalse(report.batchSummary!!.metrics.containsKey(com.aimediasorter.app.domain.diagnostics.DiagnosticMetric.REQUESTS_SENT))
+            assertNull(report.files.single().requestsSent);assertNull(report.files.single().elapsedMs)
+            assertFalse(prepared.text.contains("AQ.synthetic"));assertFalse(prepared.text.contains("private.jpg"));assertFalse(prepared.text.contains("untrusted-provider-text"))
+            assertEquals(requests,fixture.posts.size)
         } finally { fixture.close() }
     }
     private class Fixture(val target: Context,val control: Context) {

@@ -9,16 +9,17 @@ import kotlinx.serialization.encodeToString
 @Serializable enum class DiagnosticRequestStatus { SENT, NOT_SENT_LOCAL, NOT_SENT_PENDING, SKIPPED_CACHE, PARTIAL_OR_UNKNOWN, UNKNOWN }
 @Serializable data class DiagnosticEnvironment(val appVersion: String,val buildNumber: Int,val androidVersion: String,val apiLevel: Int,val deviceModel: String)
 @Serializable data class DiagnosticFileReport(val anonymousId: String,val ordinal: Long?,val status: DiagnosticStatus,
-    val requestStatus: DiagnosticRequestStatus,val requestsSent: Long,val lastStage: DiagnosticStage,
-    val errorCode: String?,val validation: DiagnosticValidation?,val httpStatus: Int?,val elapsedMs: Long,val eventIndexes: List<Int>)
+    val requestStatus: DiagnosticRequestStatus,val requestsSent: Long?,val lastStage: DiagnosticStage,
+    val errorCode: String?,val validation: DiagnosticValidation?,val httpStatus: Int?,val elapsedMs: Long?,val eventIndexes: List<Int>)
 @Serializable data class DiagnosticOperationIndex(val correlationId: String,val parentId: String?,val batchId: String?,val eventIndexes: List<Int>)
 @Serializable data class DiagnosticReport(val schemaVersion: Int=2,val generatedAtMs: Long,val scope: DiagnosticScope,
     val environment: DiagnosticEnvironment,val batchId: String?,val batchSummary: DiagnosticEvent?,val files: List<DiagnosticFileReport>,
     val eventCount: Int,val events: List<DiagnosticEvent>,val operations: List<DiagnosticOperationIndex>,val summaries: List<DiagnosticEvent>,
-    val droppedEvents: Long,val storageFailures: Long,val historyMayBeTruncated: Boolean=true,
+    val droppedEvents: Long,val storageFailures: Long,val historyMayBeTruncated: Boolean=true,val includesHistoricalStoredResults: Boolean=false,
     val requestDefinition: String="SENT means the complete POST body was written, not confirmed Google receipt or billing. A partial upload may precede a failure. Counts are local diagnostics; rotated history is unavailable.")
 class PreparedDiagnosticExport internal constructor(val text: String,val bytes: Long,val eventCount: Int,val batchId: String?,val format: DiagnosticFormat,val scope: DiagnosticScope)
 object DiagnosticExport {
+    fun decodeReport(value: String): DiagnosticReport=DiagnosticPrivacy.json.decodeFromString<DiagnosticReport>(value)
     private fun technical(value: String,max: Int)=value.takeIf {
         it.length in 1..max && it.all { c->c.isLetterOrDigit() && c.code<128 || c in " ._()+-" } &&
             !it.contains("AQ.",true) && !it.contains("AIza",true) && !it.contains("Bearer",true) && !it.contains("Authorization",true)
@@ -45,10 +46,12 @@ object DiagnosticExport {
             val relatedIndexes=events.indices.filter { related(events[it]) }
             val rows=relatedIndexes.map { events[it] }
             val final=rows.last()
-            val sent=rows.mapNotNull { it.metrics[DiagnosticMetric.REQUESTS_SENT] }.maxOrNull() ?: 0
+            val sent=rows.mapNotNull { it.metrics[DiagnosticMetric.REQUESTS_SENT] }.maxOrNull()
+                ?: if(rows.any { it.stage==DiagnosticStage.CACHE_HIT || it.stage==DiagnosticStage.REQUEST_NOT_SENT && it.analysisCode !in setOf("NETWORK","TIMEOUT","ATTEMPT_UNCERTAIN") }) 0L else null
             val code=rows.lastOrNull { it.analysisCode!=null }?.analysisCode
             val request=when {
-                sent>0 || rows.any { it.stage==DiagnosticStage.REQUEST_SENT }->DiagnosticRequestStatus.SENT
+                sent==null && rows.any { it.stage==DiagnosticStage.LEGACY_SUMMARY }->DiagnosticRequestStatus.UNKNOWN
+                (sent ?: 0)>0 || rows.any { it.stage==DiagnosticStage.REQUEST_SENT }->DiagnosticRequestStatus.SENT
                 rows.any { it.stage==DiagnosticStage.CACHE_HIT }->DiagnosticRequestStatus.SKIPPED_CACHE
                 code in setOf("NETWORK","TIMEOUT","ATTEMPT_UNCERTAIN")->DiagnosticRequestStatus.PARTIAL_OR_UNKNOWN
                 final.status==DiagnosticStatus.PENDING->DiagnosticRequestStatus.NOT_SENT_PENDING
@@ -60,7 +63,7 @@ object DiagnosticExport {
                 ?: rows.lastOrNull { it.status==DiagnosticStatus.FAILED && it.stage!=DiagnosticStage.COMPLETE }
             DiagnosticFileReport(id,rows.firstNotNullOfOrNull { it.metrics[DiagnosticMetric.ITEM_INDEX] },final.status,request,sent,
                 failure?.stage ?: final.stage,code,rows.lastOrNull { it.validation!=null }?.validation,
-                rows.lastOrNull { it.httpStatus!=null }?.httpStatus,rows.maxOf { it.durationMs },relatedIndexes)
+                rows.lastOrNull { it.httpStatus!=null }?.httpStatus,rows.filter { it.durationKnown }.maxOfOrNull { it.durationMs },relatedIndexes)
         }
         val report=DiagnosticReport(generatedAtMs=generatedAtMs,scope=scope,
             environment=environment.copy(appVersion=technical(environment.appVersion,80),buildNumber=environment.buildNumber.coerceAtLeast(0),
@@ -68,7 +71,7 @@ object DiagnosticExport {
             batchId=if(scope==DiagnosticScope.LAST_ANALYSIS) batch else null,
             batchSummary=selectedSummaries.lastOrNull(),files=files,eventCount=events.size,events=events,
             operations=groups.map { (id,indexes)->DiagnosticOperationIndex(id,events[indexes.first()].parentId,events[indexes.first()].batchId,indexes) },
-            summaries=selectedSummaries,droppedEvents=snapshot.droppedEvents.coerceAtLeast(0),storageFailures=snapshot.storageFailures.coerceAtLeast(0))
+            summaries=selectedSummaries,includesHistoricalStoredResults=events.any { it.stage==DiagnosticStage.LEGACY_SUMMARY || it.error==DiagnosticError.HISTORICAL_DETAILS_UNAVAILABLE },droppedEvents=snapshot.droppedEvents.coerceAtLeast(0),storageFailures=snapshot.storageFailures.coerceAtLeast(0))
         val text=if(format==DiagnosticFormat.JSON) DiagnosticPrivacy.json.encodeToString(report) else text(report)
         return PreparedDiagnosticExport(text,text.toByteArray(Charsets.UTF_8).size.toLong(),events.size,report.batchId,format,scope)
     }
@@ -79,11 +82,12 @@ object DiagnosticExport {
         appendLine("Batch: "+(report.batchId ?: "ALL_RETAINED")+" | Events: "+report.eventCount)
         appendLine("Dropped: "+report.droppedEvents+" | storage failures this process: "+report.storageFailures)
         appendLine(report.requestDefinition)
+        if(report.includesHistoricalStoredResults) appendLine("HISTORICAL STORED RESULTS: these are saved database results, not reconstructed execution traces. Missing request counts, durations and processing stages are UNKNOWN.")
         report.summaries.forEach { appendLine("SUMMARY "+it.batchId+" | "+it.timestampMs+" | "+it.model+" | "+it.status+" | "+it.metrics) }
         report.files.forEach { appendLine("FILE "+it.anonymousId+" | ordinal: "+it.ordinal+" | "+it.status+" | "+it.requestStatus+" | sent: "+it.requestsSent+" | failure stage: "+it.lastStage+" | code: "+it.errorCode+" | validation: "+it.validation+" | HTTP: "+it.httpStatus+" | elapsed ms: "+it.elapsedMs) }
         appendLine("EVENTS (chronological; correlation, parent and batch group related operations)")
         report.events.forEach { event->
-            appendLine(event.timestampMs.toString()+" | "+event.correlationId+" | parent="+event.parentId+" | batch="+event.batchId+" | "+event.kind+" | "+event.stage+" | "+event.status+" | elapsed ms="+event.durationMs+" | code="+event.analysisCode+" | error="+event.error+" | validation="+event.validation+" | HTTP="+event.httpStatus+" | model="+event.model+" | transfer="+event.transferPhase+" | "+event.metrics)
+            appendLine(event.timestampMs.toString()+" | "+event.correlationId+" | parent="+event.parentId+" | batch="+event.batchId+" | "+event.kind+" | "+event.stage+" | "+event.status+" | elapsed ms="+(if(event.durationKnown) event.durationMs else "UNKNOWN")+" | code="+event.analysisCode+" | error="+event.error+" | validation="+event.validation+" | HTTP="+event.httpStatus+" | model="+event.model+" | transfer="+event.transferPhase+" | "+event.metrics)
         }
     }
 }

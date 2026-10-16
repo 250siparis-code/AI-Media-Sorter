@@ -62,28 +62,48 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repo = (application as AIMediaSorterApp).repository
     private val diagnosticLog=(application as AIMediaSorterApp).diagnostics
-    val diagnosticsState=diagnosticLog.recent
+    private val _historicalDiagnostics=MutableStateFlow(DiagnosticSnapshot())
+    val diagnosticsState=combine(diagnosticLog.recent,_historicalDiagnostics) { current,historical ->
+        current.copy(events=(current.events+historical.events).sortedByDescending { it.timestampMs }.take(200),
+            summaries=(current.summaries+historical.summaries).distinctBy { it.batchId }.sortedByDescending { it.timestampMs }.take(20))
+    }.stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),DiagnosticSnapshot())
     private val _diagnosticExport=MutableStateFlow("IDLE")
     val diagnosticExport=_diagnosticExport.asStateFlow()
     private val _diagnosticPreview=MutableStateFlow<PreparedDiagnosticExport?>(null)
     val diagnosticPreview=_diagnosticPreview.asStateFlow()
+    private var diagnosticPreparation: Job?=null
     fun prepareDiagnostics(scope: DiagnosticScope,format: DiagnosticFormat) {
-        if(_diagnosticExport.value=="SAVING" || _diagnosticExport.value=="PREPARING") return
+        if(_diagnosticExport.value in setOf("SAVING","PREPARING","CLEARING")) return
         _diagnosticExport.value="PREPARING"
-        viewModelScope.launch(Dispatchers.IO) {
+        diagnosticPreparation=viewModelScope.launch(Dispatchers.IO) {
             try {
-                _diagnosticPreview.value=DiagnosticExport.prepare(diagnosticLog.snapshot(),scope,format,
+                var snapshot=try { diagnosticLog.snapshot() } catch(cancelled: CancellationException) { throw cancelled }
+                    catch(_: Exception) { diagnosticLog.recent.value }
+                if(scope==DiagnosticScope.LAST_ANALYSIS) {
+                    val stored=try { repo.storedAnalysisDiagnostics(diagnosticLog.lastClearedAt(),
+                        (snapshot.summaries+snapshot.events).mapNotNull { it.sessionId }.toSet()) }
+                        catch(cancelled: CancellationException) { throw cancelled }
+                        catch(_: Exception) { null }
+                    if(stored!=null) {
+                        _historicalDiagnostics.value=stored.second
+                        snapshot=snapshot.copy(events=snapshot.events+stored.second.events,summaries=snapshot.summaries+stored.second.summaries)
+                    }
+                }
+                _diagnosticPreview.value=DiagnosticExport.prepare(snapshot,scope,format,
                     DiagnosticEnvironment(com.aimediasorter.app.BuildConfig.VERSION_NAME,com.aimediasorter.app.BuildConfig.VERSION_CODE,
                         android.os.Build.VERSION.RELEASE,android.os.Build.VERSION.SDK_INT,android.os.Build.MODEL))
                 _diagnosticExport.value="IDLE"
-            } catch(cancelled: CancellationException) { _diagnosticExport.value="IDLE";throw cancelled }
+            } catch(cancelled: CancellationException) { if(_diagnosticExport.value=="PREPARING") _diagnosticExport.value="IDLE";throw cancelled }
+            catch(error: IllegalArgumentException) { _diagnosticExport.value="NO_REPORT" }
             catch(_: Exception) { _diagnosticExport.value="FAILED" }
         }
     }
     fun dismissDiagnosticPreview() { _diagnosticPreview.value=null }
     fun clearDiagnostics() {
+        diagnosticPreparation?.cancel()
+        _diagnosticExport.value="CLEARING"
         viewModelScope.launch(Dispatchers.IO) {
-            try { diagnosticLog.clear();_diagnosticPreview.value=null;_diagnosticExport.value="CLEARED" }
+            try { diagnosticLog.clear();_historicalDiagnostics.value=DiagnosticSnapshot();_diagnosticPreview.value=null;_diagnosticExport.value="CLEARED" }
             catch(_: Exception) { _diagnosticExport.value="FAILED" }
         }
     }

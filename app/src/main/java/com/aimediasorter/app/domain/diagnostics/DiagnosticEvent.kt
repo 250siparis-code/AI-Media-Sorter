@@ -9,12 +9,12 @@ import kotlinx.serialization.json.Json
 import java.util.UUID
 
 @Serializable enum class DiagnosticKind { APPLICATION, USER_ACTION, WORKER, ANALYSIS_BATCH, MEDIA_ANALYSIS, GEMINI_REQUEST, MODEL_CATALOG, MODEL_TEST, SETTINGS, GALLERY, CORRECTION, DATABASE, PERMISSION, OPERATION_PLAN, COPY, MOVE, RECOVERY, EXPORT }
-@Serializable enum class DiagnosticStage { START, COMPLETE, CANCELLED, FAILURE, PREFLIGHT, SOURCE_READ, ORIGINAL_ACCESS, PREPROCESS_IMAGE, PREPROCESS_VIDEO, JPEG_ENCODE, REQUEST_BUILD, RESERVATION, REQUEST_NOT_SENT, REQUEST_SENT, TRANSPORT_CONNECT, HTTP_HEADERS, HTTP_FAILURE, RESPONSE_RECEIVED, RESPONSE_VALIDATION, OUTPUT_FINISH, JSON_PARSE, SCHEMA_VALIDATION, CLASSIFICATION_SUCCESS, MANUAL_REVIEW, QUOTA_PENDING, RETRY_WAIT, CACHE_HIT, DATABASE_READ, DATABASE_WRITE, GALLERY_OPEN, THUMBNAIL_LOAD, FULLSCREEN_OPEN, CATEGORY_UPDATE, PERMISSION_CHECK, PREVIEW, APPROVAL, TRANSFER_CHECKPOINT, INTEGRITY_VERIFIED, TIMESTAMP_RESULT, SOURCE_DELETE_PENDING, BATCH_SUMMARY, CRASH, PROCESS_RECOVERY, QUEUE_OVERFLOW, STORAGE_FAILURE }
+@Serializable enum class DiagnosticStage { START, COMPLETE, CANCELLED, FAILURE, PREFLIGHT, SOURCE_READ, ORIGINAL_ACCESS, PREPROCESS_IMAGE, PREPROCESS_VIDEO, JPEG_ENCODE, REQUEST_BUILD, RESERVATION, REQUEST_NOT_SENT, REQUEST_SENT, TRANSPORT_CONNECT, HTTP_HEADERS, HTTP_FAILURE, RESPONSE_RECEIVED, RESPONSE_VALIDATION, OUTPUT_FINISH, JSON_PARSE, SCHEMA_VALIDATION, CLASSIFICATION_SUCCESS, MANUAL_REVIEW, QUOTA_PENDING, RETRY_WAIT, CACHE_HIT, DATABASE_READ, DATABASE_WRITE, GALLERY_OPEN, THUMBNAIL_LOAD, FULLSCREEN_OPEN, CATEGORY_UPDATE, PERMISSION_CHECK, PREVIEW, APPROVAL, TRANSFER_CHECKPOINT, INTEGRITY_VERIFIED, TIMESTAMP_RESULT, SOURCE_DELETE_PENDING, BATCH_SUMMARY, LEGACY_SUMMARY, CRASH, PROCESS_RECOVERY, QUEUE_OVERFLOW, STORAGE_FAILURE }
 @Serializable enum class DiagnosticStatus { STARTED, SUCCEEDED, FAILED, NEEDS_REVIEW, PENDING, CANCELLED, INFO }
 @Serializable enum class DiagnosticMetric { TOTAL_FILES, ITEM_INDEX, ITEM_COUNT, CATEGORY_COUNT, FRAME_COUNT, JPEG_BYTES, OUTPUT_TOKEN_LIMIT, BATCH_REQUEST_LIMIT, DAILY_REQUEST_LIMIT, RETRY_LIMIT, MIN_INTERVAL_SECONDS, INPUT_TOKENS, OUTPUT_TOKENS, WIDTH, HEIGHT, REQUESTS_SENT, RESERVATIONS, RETRY_INDEX, WAIT_MS, SUCCESSFUL, NEEDS_REVIEW, FAILED, PENDING, PROCESSED, VERIFIED, TIMESTAMP_PRESERVED, SOURCE_RETAINED, VIDEO, API_LEVEL, PAGE_BYTES, DROPPED_EVENTS, STORAGE_FAILURES, EVENT_COUNT, PROCESS_EXIT_REASON, PROCESS_EXIT_STATUS, RSS_KB, EXCEPTION_TYPE }
 @Serializable enum class DiagnosticTransferPhase { STAGING, PUBLISHING, DESTINATION_VERIFIED, SOURCE_DELETE_PENDING, COMPLETED, OTHER }
 @Serializable enum class DiagnosticValidation { ENVELOPE, ENVELOPE_PARTS, FINISH, JSON_SYNTAX, PAYLOAD_OBJECT, REQUIRED_FIELDS, FIELD_TYPE_OR_LENGTH, CATEGORY_VALUES, CATEGORY_ARRAY, CATEGORY_STRING, CATEGORY_COUNT, CATEGORY_DUPLICATE, CATEGORY_UNSUPPORTED, SUBJECT_ARRAY, SUBJECT_FIELDS, SUBJECT_IMPORTANCE, SUBJECT_DESCRIPTION, SUBJECT_COUNT, MAIN_SUBJECT_REQUIRED, DETAIL_ARRAY, DETAIL_STRING, DETAIL_COUNT, REVIEW_STATUS, POSE, SCENE, REASON, USAGE_METADATA }
-@Serializable enum class DiagnosticError { NONE, UNEXPECTED, PERMISSION_DENIED, DATABASE_FAILED, TRANSFER_NOT_VERIFIED, EXPORT_FAILED, PROCESS_INTERRUPTED, QUEUE_FULL, LOG_STORAGE_FAILED }
+@Serializable enum class DiagnosticError { NONE, UNEXPECTED, PERMISSION_DENIED, DATABASE_FAILED, TRANSFER_NOT_VERIFIED, EXPORT_FAILED, PROCESS_INTERRUPTED, QUEUE_FULL, LOG_STORAGE_FAILED, HISTORICAL_DETAILS_UNAVAILABLE }
 
 /** No arbitrary message, URI, category text, filename, exception text or provider body field exists. */
 @Serializable data class DiagnosticEvent(
@@ -22,7 +22,7 @@ import java.util.UUID
     val kind: DiagnosticKind, val stage: DiagnosticStage, val status: DiagnosticStatus,
     val durationMs: Long=0, val error: DiagnosticError=DiagnosticError.NONE,
     val analysisCode: String?=null, val httpStatus: Int?=null, val model: String?=null,
-    val metrics: Map<DiagnosticMetric,Long> = emptyMap(),val transferPhase: DiagnosticTransferPhase?=null,val validation: DiagnosticValidation?=null
+    val metrics: Map<DiagnosticMetric,Long> = emptyMap(),val transferPhase: DiagnosticTransferPhase?=null,val validation: DiagnosticValidation?=null,val sessionId: String?=null,val durationKnown: Boolean=true
 )
 object DiagnosticPrivacy {
     private val uuid=Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
@@ -33,11 +33,12 @@ object DiagnosticPrivacy {
     fun sanitize(event: DiagnosticEvent): DiagnosticEvent? {
         val id=id(event.correlationId) ?: return null
         return event.copy(timestampMs=event.timestampMs.coerceIn(0,9_999_999_999_999L),correlationId=id,
-            parentId=id(event.parentId),batchId=id(event.batchId),durationMs=event.durationMs.coerceIn(0,604_800_000L),
+            parentId=id(event.parentId),batchId=id(event.batchId),sessionId=id(event.sessionId),durationMs=event.durationMs.coerceIn(0,604_800_000L),
             analysisCode=event.analysisCode?.let { AnalysisCode.safely(it).name },
             httpStatus=event.httpStatus?.takeIf { it in 100..599 },model=model(event.model),
             metrics=event.metrics.entries.take(16).associate { it.key to it.value.coerceIn(0,1_000_000_000L) })
     }
+    fun encode(event: DiagnosticEvent): String=json.encodeToString(requireNotNull(sanitize(event)))
     val json=Json { encodeDefaults=true;ignoreUnknownKeys=true }
     fun decode(value: String): DiagnosticEvent?=try { sanitize(json.decodeFromString<DiagnosticEvent>(value)) } catch(_: Exception) { null }
 }
@@ -53,10 +54,10 @@ class DiagnosticOperation(private val sink: DiagnosticSink, val kind: Diagnostic
     init { event(DiagnosticStage.START,DiagnosticStatus.STARTED) }
     fun event(stage: DiagnosticStage,status: DiagnosticStatus=DiagnosticStatus.INFO,
         code: AnalysisCode?=null,error: DiagnosticError=DiagnosticError.NONE,http: Int?=null,
-        metrics: Map<DiagnosticMetric,Long> = emptyMap(),transferPhase: DiagnosticTransferPhase?=null,validation: DiagnosticValidation?=null) {
+        metrics: Map<DiagnosticMetric,Long> = emptyMap(),transferPhase: DiagnosticTransferPhase?=null,validation: DiagnosticValidation?=null,sessionId: String?=null) {
         // Logging cannot change analysis/transfer success, throw, or invoke an exception formatter.
         try { sink.record(DiagnosticEvent(System.currentTimeMillis(),id,parentId,batchId,kind,stage,status,
-            ((System.nanoTime()-started)/1_000_000).coerceAtLeast(0),error,code?.name,http,model,metrics,transferPhase,validation)) } catch(_: Exception) { }
+            ((System.nanoTime()-started)/1_000_000).coerceAtLeast(0),error,code?.name,http,model,metrics,transferPhase,validation,DiagnosticPrivacy.id(sessionId))) } catch(_: Exception) { }
     }
     fun child(kind: DiagnosticKind)=DiagnosticOperation(sink,kind,batchId,id,model)
     fun failure(error: Throwable) {

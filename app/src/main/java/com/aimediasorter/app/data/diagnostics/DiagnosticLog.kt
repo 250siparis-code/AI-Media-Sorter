@@ -19,6 +19,8 @@ import java.util.concurrent.atomic.AtomicLong
 /** App-private, bounded, no WAL and no networking. One IO writer; callers only trySend. */
 class DiagnosticLog(context: Context,databaseName: String="diagnostics.db",
     private val maxEvents: Int=4000,private val retentionMs: Long=7*24*60*60*1000L,private val maxBytes: Long=10_000_000L) : DiagnosticSink {
+    private val retentionPrefs by lazy { context.applicationContext.getSharedPreferences("diagnostic_retention_"+databaseName,Context.MODE_PRIVATE) }
+    fun lastClearedAt()=retentionPrefs.getLong("cleared_at",0L)
     private val database=Store(context.applicationContext,databaseName,maxBytes,retentionMs)
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
     private sealed interface Command {
@@ -62,7 +64,7 @@ class DiagnosticLog(context: Context,databaseName: String="diagnostics.db",
                         if(System.nanoTime()-lastPublish>250_000_000L) publish()
                     }
                     is Command.Clear -> {
-                        pendingSummaries.clear();database.clear();dropped.set(0);failures.set(0);lastDropped=0;lastFailures=0;publish();command.result.complete(Unit)
+                        check(retentionPrefs.edit().putLong("cleared_at",System.currentTimeMillis()).commit());pendingSummaries.clear();database.clear();dropped.set(0);failures.set(0);lastDropped=0;lastFailures=0;publish();command.result.complete(Unit)
                     }
                     is Command.Snapshot -> {
                         publish()
@@ -119,7 +121,12 @@ class DiagnosticLog(context: Context,databaseName: String="diagnostics.db",
     suspend fun close() { queue.close();writer.join();database.close();scope.cancel() }
 
     private class Store(context: Context,name: String,private val maxBytes: Long,private val retentionMs: Long): SQLiteOpenHelper(context,name,null,2) {
-        override fun onConfigure(db: SQLiteDatabase) { val pageBytes=db.pageSize;db.setMaximumSize(maxBytes.coerceAtLeast(65_536L)/pageBytes*pageBytes) }
+        override fun onConfigure(db: SQLiteDatabase) {
+            db.disableWriteAheadLogging()
+            db.rawQuery("PRAGMA journal_mode=DELETE",null).use { it.moveToFirst() }
+            val pageBytes=db.pageSize
+            db.setMaximumSize(maxBytes.coerceAtLeast(65_536L)/pageBytes*pageBytes)
+        }
         override fun onCreate(db: SQLiteDatabase) {
             db.execSQL("CREATE TABLE events(seq INTEGER PRIMARY KEY, ts INTEGER NOT NULL, bytes INTEGER NOT NULL, payload TEXT NOT NULL)")
             db.execSQL("CREATE TABLE summaries(batch TEXT PRIMARY KEY, ts INTEGER NOT NULL, payload TEXT NOT NULL)")
@@ -138,7 +145,7 @@ class DiagnosticLog(context: Context,databaseName: String="diagnostics.db",
                 db.execSQL("DELETE FROM events WHERE ts < ?",arrayOf(System.currentTimeMillis()-retentionMs))
                 db.execSQL("DELETE FROM events WHERE seq NOT IN (SELECT seq FROM events ORDER BY seq DESC LIMIT ?)",arrayOf(maxEvents.coerceIn(1,4000)-1))
                 for(event in events) {
-                    val payload=DiagnosticPrivacy.json.encodeToString(event)
+                    val payload=DiagnosticPrivacy.encode(event)
                     val size=payload.toByteArray(Charsets.UTF_8).size
                     require(size<=4096)
                     // Track actual UTF-8 payload bytes; reserve ample room for page fragmentation,

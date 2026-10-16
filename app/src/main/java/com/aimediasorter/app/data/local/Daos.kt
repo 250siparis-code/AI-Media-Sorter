@@ -91,6 +91,9 @@ interface TransferLogDao {
 
 @Dao
 interface AnalysisSessionDao {
+    @Query("SELECT * FROM analysis_sessions ORDER BY startedAtMs DESC LIMIT 1")
+    suspend fun latest(): AnalysisSessionEntity?
+
     @Query("SELECT * FROM analysis_sessions ORDER BY startedAtMs DESC")
     fun observeSessions(): Flow<List<AnalysisSessionEntity>>
 
