@@ -212,7 +212,7 @@ class GeminiClient(private val transport: CloudTransport, private val wait: susp
                 val parsed=CloudProtocol.parseResponse(r.body,categories.map { it.id }.toSet())
                 return parsed.copy(decision=parsed.decision.redact(key))
             }
-            if(attempt<options.retries && r.code in setOf(429,500,502,503,504) && !r.body.contains("billing",true))
+            if(attempt<options.retries && r.code in setOf(429,500,502,503,504))
                 wait(maxOf(1000L*(1L shl attempt),r.retryAfterSeconds.coerceIn(0,30)*1000).coerceAtMost(30_000))
             else checkHttp(r)
         }
@@ -222,11 +222,14 @@ class GeminiClient(private val transport: CloudTransport, private val wait: susp
         if(r.code==200) return
         // Raw provider text is never displayed or logged.
         throw CloudFailure(when {
-            r.code==402 || r.body.contains("billing",true) -> CloudErrorKind.BILLING
-            r.code==401 || r.code==403 || (r.code==400 && (r.body.contains("API_KEY_INVALID",true) || r.body.contains("API key not valid",true))) -> CloudErrorKind.AUTH
+            r.code==401 || (r.code==400 && (r.body.contains("API_KEY_INVALID",true) || r.body.contains("API key not valid",true))) -> CloudErrorKind.AUTH
             r.code==404 -> CloudErrorKind.MODEL
+            // Quota messages commonly link to plan/billing help. That text must
+            // never override HTTP 429 or suppress its bounded retry/backoff.
             r.code==429 -> CloudErrorKind.QUOTA
             r.code>=500 -> CloudErrorKind.SERVER
+            r.code==402 || (r.code in setOf(400,403) && r.body.contains("billing",true)) -> CloudErrorKind.BILLING
+            r.code==403 -> CloudErrorKind.AUTH
             r.code==400 -> CloudErrorKind.REQUEST
             else -> CloudErrorKind.RESPONSE
         })
