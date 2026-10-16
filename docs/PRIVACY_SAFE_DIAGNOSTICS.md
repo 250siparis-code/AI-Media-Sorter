@@ -73,3 +73,38 @@ The independent PR workflow [38971830056](https://github.com/250siparis-code/AI-
 The final follow-up changes only diagnostic report preparation: event ancestry grouping is linear in the event count (bounded parent depth), cancelling/clearing prevents a stale preview from being published, and recovered durations are unknown across process loss. Local verification after that follow-up: 58 JVM tests plus lint/debug/instrumentation compilation succeeded. Final CI results follow below.
 
 QA builds use debug signing, not production signing. Upgrade-signature compatibility with an existing installation is unverified; do not uninstall the existing app to obtain this report, because that would remove its private saved results and key/grants. Historical export depends on retaining the original app data through a compatible update. Physical-device validation and live Gemini accuracy evaluation remain unperformed.
+
+## Changed files
+
+- `app/build.gradle.kts`
+- `app/src/androidTest/java/com/aimediasorter/app/DiagnosticLogNativeTest.kt`
+- `app/src/androidTest/java/com/aimediasorter/app/DiagnosticsUiTest.kt`
+- `app/src/androidTest/java/com/aimediasorter/app/RealPhotoDiagnosticsTest.kt`
+- `app/src/main/java/com/aimediasorter/app/AIMediaSorterApp.kt`
+- `app/src/main/java/com/aimediasorter/app/MainActivity.kt`
+- `app/src/main/java/com/aimediasorter/app/data/diagnostics/DiagnosticLog.kt`
+- `app/src/main/java/com/aimediasorter/app/data/local/Daos.kt`
+- `app/src/main/java/com/aimediasorter/app/data/repository/MediaRepository.kt`
+- `app/src/main/java/com/aimediasorter/app/domain/cloud/AnalysisDiagnostics.kt`
+- `app/src/main/java/com/aimediasorter/app/domain/cloud/CloudAnalysisService.kt`
+- `app/src/main/java/com/aimediasorter/app/domain/cloud/CloudProtocol.kt`
+- `app/src/main/java/com/aimediasorter/app/domain/cloud/GeminiHttpTransport.kt`
+- `app/src/main/java/com/aimediasorter/app/domain/diagnostics/DiagnosticEvent.kt`
+- `app/src/main/java/com/aimediasorter/app/domain/diagnostics/DiagnosticExport.kt`
+- `app/src/main/java/com/aimediasorter/app/ui/navigation/AIMediaSorterNavHost.kt`
+- `app/src/main/java/com/aimediasorter/app/ui/screens/AnalysisProgressScreen.kt`
+- `app/src/main/java/com/aimediasorter/app/ui/screens/DiagnosticsScreen.kt`
+- `app/src/main/java/com/aimediasorter/app/ui/screens/MediaReviewScreen.kt`
+- `app/src/main/java/com/aimediasorter/app/ui/screens/SettingsScreen.kt`
+- `app/src/main/java/com/aimediasorter/app/ui/screens/VirtualGalleryScreen.kt`
+- `app/src/main/java/com/aimediasorter/app/ui/viewmodel/MainViewModel.kt`
+- `app/src/main/java/com/aimediasorter/app/worker/MediaAnalysisWorker.kt`
+- `app/src/main/java/com/aimediasorter/app/worker/MediaTransferWorker.kt`
+- `app/src/main/res/values-tr/strings.xml`
+- `app/src/main/res/values/strings.xml`
+- `app/src/test/java/com/aimediasorter/app/DiagnosticExportTest.kt`
+- `docs/PRIVACY_SAFE_DIAGNOSTICS.md`
+
+String validation failures include a finite violation tag (STRING_REQUIRED, EMPTY_NOT_ALLOWED, STRING_TOO_LONG, CONTROL_CHARACTER) plus the measured Kotlin/UTF-16 length and allowed limit when a string exists. The corresponding field tag (for example SUBJECT_DESCRIPTION or REASON) is retained. No offending text is recorded. The validation acceptance rules are unchanged; this separates causes that otherwise share RESPONSE_SCHEMA.
+
+At 41b30e5 the primary push workflow 38973340219 passed the full five-profile matrix and build. The independent PR workflow 38973345810 passed four profiles/build but failed API35/16KB/release in virtualFolderOpensRealThumbnailAndFullScreenPreview: SIGSEGV with PC zero through JIT-compiled AndroidComposeView constructor/Wrapper_androidKt.setContent. This is another unroot-caused 16 KB runtime failure, not a passing test or an established environment-only cause. It remains part of the HIGH issue above.
