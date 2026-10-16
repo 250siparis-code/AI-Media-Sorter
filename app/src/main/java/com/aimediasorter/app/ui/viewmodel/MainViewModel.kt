@@ -77,6 +77,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _diagnosticExport.value="PREPARING"
         diagnosticPreparation=viewModelScope.launch(Dispatchers.IO) {
             try {
+                var historicalToPublish: DiagnosticSnapshot?=null
                 var snapshot=try { diagnosticLog.snapshot() } catch(cancelled: CancellationException) { throw cancelled }
                     catch(_: Exception) { diagnosticLog.recent.value }
                 if(scope==DiagnosticScope.LAST_ANALYSIS) {
@@ -85,14 +86,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         catch(cancelled: CancellationException) { throw cancelled }
                         catch(_: Exception) { null }
                     if(stored!=null) {
-                        _historicalDiagnostics.value=stored.second
+                        historicalToPublish=stored.second
                         snapshot=snapshot.copy(events=snapshot.events+stored.second.events,summaries=snapshot.summaries+stored.second.summaries)
                     }
                 }
-                _diagnosticPreview.value=DiagnosticExport.prepare(snapshot,scope,format,
+                val prepared=DiagnosticExport.prepare(snapshot,scope,format,
                     DiagnosticEnvironment(com.aimediasorter.app.BuildConfig.VERSION_NAME,com.aimediasorter.app.BuildConfig.VERSION_CODE,
                         android.os.Build.VERSION.RELEASE,android.os.Build.VERSION.SDK_INT,android.os.Build.MODEL))
-                _diagnosticExport.value="IDLE"
+                // Main-thread publication is ordered with Clear, and this dispatcher switch
+                // discards a cancelled preparation before it can restore cleared history.
+                withContext(Dispatchers.Main.immediate) {
+                    historicalToPublish?.let { _historicalDiagnostics.value=it }
+                    _diagnosticPreview.value=prepared
+                    _diagnosticExport.value="IDLE"
+                }
             } catch(cancelled: CancellationException) { if(_diagnosticExport.value=="PREPARING") _diagnosticExport.value="IDLE";throw cancelled }
             catch(error: IllegalArgumentException) { _diagnosticExport.value="NO_REPORT" }
             catch(_: Exception) { _diagnosticExport.value="FAILED" }

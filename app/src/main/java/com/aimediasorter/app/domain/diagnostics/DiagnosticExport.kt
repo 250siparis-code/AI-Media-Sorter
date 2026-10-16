@@ -33,17 +33,23 @@ object DiagnosticExport {
         val events=if(scope==DiagnosticScope.LAST_ANALYSIS) all.filter { it.batchId==batch } else all
         val selectedSummaries=if(scope==DiagnosticScope.LAST_ANALYSIS) summaries.filter { it.batchId==batch } else summaries
         val groups=events.indices.groupBy { events[it].correlationId }
+        val firstById=groups.mapValues { (_,indexes)->events[indexes.first()] }
+        val relatedByMedia=mutableMapOf<String,MutableList<Int>>()
+        // Walk each event's ancestry once instead of scanning the whole log for every file.
+        events.forEachIndexed { index,event ->
+            var current: DiagnosticEvent?=event
+            for(depth in 0 until 16) {
+                val cursor=current ?: break
+                if(cursor.kind==DiagnosticKind.MEDIA_ANALYSIS) {
+                    relatedByMedia.getOrPut(cursor.correlationId) { mutableListOf() }.add(index)
+                    break
+                }
+                current=cursor.parentId?.let { firstById[it] }
+            }
+        }
         val files=groups.mapNotNull { (id,indexes)->
             if(events[indexes.first()].kind!=DiagnosticKind.MEDIA_ANALYSIS) return@mapNotNull null
-            fun related(event: DiagnosticEvent): Boolean {
-                var current=event.correlationId
-                repeat(16) {
-                    if(current==id) return true
-                    current=groups[current]?.firstOrNull()?.let { events[it].parentId } ?: return false
-                }
-                return false
-            }
-            val relatedIndexes=events.indices.filter { related(events[it]) }
+            val relatedIndexes=relatedByMedia[id].orEmpty()
             val rows=relatedIndexes.map { events[it] }
             val final=rows.last()
             val sent=rows.mapNotNull { it.metrics[DiagnosticMetric.REQUESTS_SENT] }.maxOrNull()
