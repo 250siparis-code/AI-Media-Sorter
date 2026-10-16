@@ -310,4 +310,14 @@
     <string name="physical_execute">Onayla ve uygula</string>
     <string name="physical_empty">Henüz onaylanmış fiziksel işlem yok.</string>
     <string name="cloud_interval">Üretim denemeleri arası en az saniye (0–120); ücretsiz kota modele göre değişir</string>
+    <string name="physical_status_approved">Plan onaylandı; bekliyor</string>
+    <string name="physical_status_running">İşlem sürüyor</string>
+    <string name="physical_status_cancelling">İptal istendi; yeniden denemeden önce kontrol edin</string>
+    <string name="physical_status_verified">SHA-256 ve dosya değişiklik zamanı doğrulandı</string>
+    <string name="physical_status_timestamp">SHA-256 doğrulandı; değişiklik zamanı korunamadı</string>
+    <string name="physical_status_retained">Kopya doğrulandı; orijinal kaynak korundu</string>
+    <string name="physical_status_recovery">Kesildi: kaynak ve hedefi kontrol edin; otomatik tekrar yok</string>
+    <string name="physical_status_collision">Mevcut hedef atlandı; kaynak korundu</string>
+    <string name="physical_status_failed">İşlem başarısız</string>
+    <string name="physical_status_cancelled">Bu işlem başlamadan iptal edildi</string>
 </resources>

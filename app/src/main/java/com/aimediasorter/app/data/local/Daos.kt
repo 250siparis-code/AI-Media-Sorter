@@ -132,6 +132,10 @@ interface VirtualGalleryDao {
     suspend fun insertPlans(plans: List<PhysicalPlanEntity>)
     @Update
     suspend fun updatePlan(plan: PhysicalPlanEntity)
-    @Query("UPDATE physical_plans SET status='RECOVERY_REQUIRED',note='Interrupted operation. Inspect verified destinations before retrying; source deletion was not resumed.' WHERE status='RUNNING'")
+    @Query("UPDATE physical_plans SET status='CANCELLED',note='Cancelled before this operation started.' WHERE status='APPROVED'")
+    suspend fun cancelUnstartedPlans()
+    @Query("UPDATE physical_plans SET status='CANCEL_REQUESTED',note='Cancellation requested; inspect source and destination.' WHERE status='RUNNING'")
+    suspend fun requestCancelRunningPlans()
+    @Query("UPDATE physical_plans SET status='RECOVERY_REQUIRED',note='Interrupted operation. Inspect verified destinations before retrying; source deletion was not resumed.' WHERE status IN ('RUNNING','CANCEL_REQUESTED')")
     suspend fun recoverRunningPlans()
 }

@@ -245,6 +245,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 persistUriPermission(uri, false)
                 workManager.cancelUniqueWork(MediaAnalysisWorker.WORK_NAME)
                 workManager.cancelUniqueWork(MediaTransferWorker.WORK_NAME)
+                repo.cancelPhysicalPlans()
                 settingsRepo.updateSourceUri(uri.toString())
             } catch (error: Exception) {
                 _exportStatusMessage.value = "ERROR:" + error.message
@@ -257,6 +258,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 persistUriPermission(uri, true)
                 workManager.cancelUniqueWork(MediaTransferWorker.WORK_NAME)
+                repo.cancelPhysicalPlans()
                 settingsRepo.updateDestinationUri(uri.toString())
             } catch (error: Exception) {
                 _exportStatusMessage.value = "ERROR:" + error.message
@@ -283,7 +285,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setOperationMode(mode: OperationMode) {
         launchSafely {
             settingsRepo.updateOperationMode(mode)
-            if (mode == OperationMode.ANALYSIS_ONLY) workManager.cancelUniqueWork(MediaTransferWorker.WORK_NAME)
+            if (mode == OperationMode.ANALYSIS_ONLY) { workManager.cancelUniqueWork(MediaTransferWorker.WORK_NAME);repo.cancelPhysicalPlans() }
         }
     }
 
@@ -420,6 +422,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun cancelTransfers() {
         workManager.cancelUniqueWork(MediaTransferWorker.WORK_NAME)
+        launchSafely { repo.cancelPhysicalPlans() }
     }
 
     fun saveLastExport(uri: Uri) {

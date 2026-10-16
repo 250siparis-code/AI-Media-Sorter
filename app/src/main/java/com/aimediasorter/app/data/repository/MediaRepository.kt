@@ -417,6 +417,13 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
         preview.steps.map { it.id }
     }
 
+    suspend fun cancelPhysicalPlans() {
+        db.withTransaction {
+            db.virtualGalleryDao().cancelUnstartedPlans()
+            db.virtualGalleryDao().requestCancelRunningPlans()
+        }
+    }
+
     suspend fun executePhysicalPlans(settings: AppSettings,ids: List<String>) = withContext(Dispatchers.IO) {
         operationMutex.withLock {
             reconcileLocked()
@@ -453,6 +460,7 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                     var journal=TransferJournalEntity(journalId,item.id,live.sourceUri,item.uriString,step.method,
                         "PREPARED",null,null,step.sourceHash,item.originalLastModifiedMs,0,false,System.currentTimeMillis(),"")
                     db.withTransaction {
+                        require(db.virtualGalleryDao().plans(listOf(step.id)).singleOrNull()?.status=="APPROVED") { "Plan cancelled before transfer." }
                         val currentItem=requireNotNull(db.mediaItemDao().getMediaItemById(item.id))
                         require(currentItem.decisionVersion==step.decisionVersion && !currentItem.isExcludedFromTransfer)
                         db.virtualGalleryDao().updatePlan(step.copy(status="RUNNING"))
@@ -467,6 +475,7 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                         if(checkpoint.phase=="SOURCE_DELETE_PENDING") {
                             val now=settingsRepository.settingsFlow.first()
                             val row=db.mediaItemDao().getMediaItemById(item.id)
+                            require(db.virtualGalleryDao().plans(listOf(step.id)).singleOrNull()?.status=="RUNNING") { "Transfer approval revoked; source retained." }
                             require(now.operationMode==OperationMode.MOVE_FILES && now.sourceUri==live.sourceUri &&
                                 now.destinationUri==live.destinationUri && now.timestampPolicy==live.timestampPolicy &&
                                 row!=null && row.decisionVersion==step.decisionVersion && !row.isExcludedFromTransfer)
