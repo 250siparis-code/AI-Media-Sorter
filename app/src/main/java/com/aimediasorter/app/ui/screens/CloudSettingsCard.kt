@@ -6,6 +6,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
@@ -19,6 +22,7 @@ data class CloudUiState(val hasKey: Boolean=false,val models: List<String> = emp
     val usage: String="0 / 0 / 0",val busy: Boolean=false,val error: String?=null,
     val message: String?=null,val savedRevision: Int=0,val modelVerified: Boolean=false,val failure: CloudErrorKind?=null)
 
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable fun CloudSettingsCard(o: CloudOptions,state: CloudUiState,onOptions: (CloudOptions)->Unit,
     onSaveKey: (String)->Unit,onClearKey: ()->Unit,onRefreshModels: ()->Unit,onRefreshState: ()->Unit,
     onTestModel: ()->Unit) {
@@ -42,17 +46,17 @@ data class CloudUiState(val hasKey: Boolean=false,val models: List<String> = emp
     }
     LaunchedEffect(Unit) { onRefreshState() }
     LaunchedEffect(state.savedRevision) { if(state.savedRevision>0) key="" }
-    OutlinedCard(modifier=Modifier.fillMaxWidth()) {
+    OutlinedCard(modifier=Modifier.fillMaxWidth().semantics { testTagsAsResourceId=true }) {
         Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.cloud_title),style=MaterialTheme.typography.titleMedium)
             Text(stringResource(R.string.gemini_only_note))
             Text(stringResource(R.string.cloud_privacy))
             OutlinedTextField(key,{key=it},label={Text(stringResource(R.string.cloud_key))},
                 visualTransformation=PasswordVisualTransformation(),keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Password),
-                singleLine=true,modifier=Modifier.fillMaxWidth())
+                singleLine=true,modifier=Modifier.fillMaxWidth().testTag("gemini-key-input"))
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                Button(enabled=ApiKeyInput.canSave(key)&&!state.busy,onClick={onSaveKey(ApiKeyInput.normalized(key))}) { Text(stringResource(if(state.hasKey) R.string.cloud_replace_key else R.string.cloud_save_key)) }
-                OutlinedButton(enabled=state.hasKey&&!state.busy,onClick={key="";onClearKey()}) { Text(stringResource(R.string.cloud_clear_key)) }
+                Button(modifier=Modifier.testTag("gemini-save-key"),enabled=ApiKeyInput.canSave(key)&&!state.busy,onClick={onSaveKey(ApiKeyInput.normalized(key))}) { Text(stringResource(if(state.hasKey) R.string.cloud_replace_key else R.string.cloud_save_key)) }
+                OutlinedButton(modifier=Modifier.testTag("gemini-delete-key"),enabled=state.hasKey&&!state.busy,onClick={key="";onClearKey()}) { Text(stringResource(R.string.cloud_clear_key)) }
             }
             Text(stringResource(if(state.hasKey) R.string.cloud_key_saved else R.string.cloud_key_missing))
             state.failure?.let { Text(cloudFailureText(it),color=MaterialTheme.colorScheme.error) }

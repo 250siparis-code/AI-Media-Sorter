@@ -22,3 +22,7 @@
 -keep class kotlin.** { *; }
 -keep class kotlinx.coroutines.** { *; }
 -keep class androidx.room.** { *; }
+
+# The acceptance APK constructs isolated stores using app-provided DataStore APIs.
+# Preserve this shared boundary when verifying the minified release.
+-keep class androidx.datastore.** { *; }
