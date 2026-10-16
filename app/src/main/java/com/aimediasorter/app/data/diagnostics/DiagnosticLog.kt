@@ -226,7 +226,7 @@ object Diagnostics : DiagnosticSink {
                 }.forEach { events ->
                     val old=events.first()
                     created.record(old.copy(timestampMs=System.currentTimeMillis(),stage=DiagnosticStage.PROCESS_RECOVERY,
-                        status=DiagnosticStatus.NEEDS_REVIEW,error=DiagnosticError.PROCESS_INTERRUPTED,metrics=emptyMap()))
+                        status=DiagnosticStatus.NEEDS_REVIEW,error=DiagnosticError.PROCESS_INTERRUPTED,metrics=emptyMap(),durationKnown=false))
                 }
             } catch(_: Exception) { }
             try {

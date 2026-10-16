@@ -97,6 +97,20 @@ class DiagnosticExportTest {
     @Test(expected=IllegalArgumentException::class) fun noLastBatchIsNotInvented() {
         DiagnosticExport.prepare(DiagnosticSnapshot(),DiagnosticScope.LAST_ANALYSIS,DiagnosticFormat.JSON,environment)
     }
+    @Test fun nestedRequestEventsStayWithTheirMediaAndUnrelatedGalleryEventsDoNot() {
+        val batch=UUID.randomUUID().toString();val file=UUID.randomUUID().toString();val request=UUID.randomUUID().toString()
+        val start=event(batch,file,1,DiagnosticStage.START).copy(status=DiagnosticStatus.STARTED)
+        val sent=event(batch,request,2,DiagnosticStage.REQUEST_SENT).copy(kind=DiagnosticKind.GEMINI_REQUEST,parentId=file,status=DiagnosticStatus.SUCCEEDED)
+        val failure=event(batch,request,3,DiagnosticStage.JSON_PARSE).copy(kind=DiagnosticKind.GEMINI_REQUEST,parentId=file,validation=DiagnosticValidation.JSON_SYNTAX)
+        val gallery=event(batch,time=4).copy(kind=DiagnosticKind.GALLERY)
+        val final=event(batch,file,5)
+        val snapshot=DiagnosticSnapshot(listOf(final,gallery,failure,sent,start))
+        val report=DiagnosticExport.decodeReport(DiagnosticExport.prepare(snapshot,DiagnosticScope.ALL_EVENTS,DiagnosticFormat.JSON,environment).text)
+        assertEquals(4,report.files.single().eventIndexes.size)
+        assertEquals(DiagnosticStage.JSON_PARSE,report.files.single().lastStage)
+        assertEquals(DiagnosticRequestStatus.SENT,report.files.single().requestStatus)
+        assertFalse(report.files.single().eventIndexes.map { report.events[it] }.any { it.kind==DiagnosticKind.GALLERY })
+    }
     @Test fun historicalRecordsDoNotInventSentCountsOrMeasuredDurations() {
         val batch=UUID.randomUUID().toString()
         val historical=event(batch,stage=DiagnosticStage.LEGACY_SUMMARY).copy(durationKnown=false,
