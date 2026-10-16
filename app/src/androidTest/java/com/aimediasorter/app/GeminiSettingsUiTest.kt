@@ -47,13 +47,22 @@ class GeminiSettingsUiTest {
             }
             compose.waitForIdle()
         }
+        fun awaitFeedback(kind: String) {
+            // File publication precedes the ViewModel's IO readback and UI acknowledgement.
+            // Compose idleness alone does not wait for that independent coroutine.
+            compose.waitUntil(10_000) {
+                compose.onAllNodesWithTag("gemini-feedback-"+kind,useUnmergedTree=true)
+                    .fetchSemanticsNodes().size==1
+            }
+            val message=compose.onNodeWithTag("gemini-feedback-"+kind,useUnmergedTree=true)
+                .assertExists().fetchSemanticsNode()
+            assertTrue(message.config[SemanticsProperties.Text].any { it.text.isNotBlank() })
+        }
         fun saveKey(value: String) {
             compose.onNodeWithTag("gemini-key-input").performScrollTo().performTextReplacement(value)
             compose.onNodeWithTag("gemini-save-key").performScrollTo().assertIsEnabled().performClick()
             awaitKey(value)
-            val message=compose.onNodeWithTag("gemini-feedback-SAVED",useUnmergedTree=true)
-                .assertExists().fetchSemanticsNode()
-            assertTrue(message.config[SemanticsProperties.Text].any { it.text.isNotBlank() })
+            awaitFeedback("SAVED")
         }
         openSettings()
         compose.onNodeWithTag("gemini-save-key").performScrollTo().assertIsNotEnabled()
@@ -65,7 +74,8 @@ class GeminiSettingsUiTest {
         saveKey(replacement)
         assertEquals(replacement,GeminiKeyVault(context).read())
         compose.onNodeWithTag("gemini-delete-key").performScrollTo().assertIsEnabled().performClick()
-        awaitKey(null)
+        awaitKey(null);awaitFeedback("DELETED")
+        compose.onNodeWithTag("gemini-delete-key").assertIsNotEnabled()
         assertFalse(vault.hasKey())
     }
 }
