@@ -25,9 +25,10 @@ object CloudApproval {
     fun requiresIndividualReview(engine: String)=engine.startsWith("GEMINI")
 }
 class CloudAnalysisService(context: Context,
-    private val client: GeminiClient=GeminiClient(GeminiHttpTransport())) {
-    val vault=GeminiKeyVault(context)
-    val state=CloudStateStore(context)
+    private val client: GeminiClient=GeminiClient(GeminiHttpTransport()),
+    namespace: String="user",databaseName: String="gemini_private_state.db") {
+    val vault=GeminiKeyVault(context,namespace)
+    val state=CloudStateStore(context,databaseName)
     private val encoder=CloudMediaEncoder(context)
     private fun digest(s: String)=MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
     fun authorize(signature: String,options: CloudOptions): String {
@@ -59,7 +60,9 @@ class CloudAnalysisService(context: Context,
             if(vault.revision!=credential.revision) throw CloudFailure(CloudErrorKind.CONSENT)
             state.reserve(batch,signature,credential.revision)
         }
+        if(vault.revision!=credential.revision) throw CloudFailure(CloudErrorKind.CONSENT)
         state.recordUsage(result)
+        state.markModelVerified(credential.revision,options.model)
     }
     suspend fun analyze(settings: AppSettings,batch: String,signature: String,originalHash: String?,
         categories: List<CategoryEntity>,uri: Uri,path: String?,isVideo: Boolean,orientation: Int,mirrored: Boolean,
@@ -68,7 +71,7 @@ class CloudAnalysisService(context: Context,
         var cacheKey=""
         try {
             if(originalHash==null) throw CloudFailure(CloudErrorKind.CONSENT)
-            if(!o.ready() || o.model !in state.models(vault.revision)) throw CloudFailure(CloudErrorKind.CONFIG)
+            if(!o.ready() || o.model !in state.models(vault.revision) || !state.modelVerified(vault.revision,o.model)) throw CloudFailure(CloudErrorKind.CONFIG)
             cacheKey=digest(originalHash+";"+vault.revision+";"+o.model+";"+o.maxOutputTokens+";"+orientation+";"+mirrored+";"+isVideo+";"+CloudProtocol.VERSION+";"+CloudProtocol.categories(categories))
             var decision=if(force) null else state.cached(cacheKey)
             var sampledTimes=""
