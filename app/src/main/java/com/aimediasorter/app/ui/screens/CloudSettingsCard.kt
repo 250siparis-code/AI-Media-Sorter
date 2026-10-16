@@ -10,6 +10,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -37,6 +39,8 @@ data class CloudUiState(val hasKey: Boolean=false,val models: List<String> = emp
     fun dollars(micros: Long)=BigDecimal.valueOf(micros,6).stripTrailingZeros().toPlainString()
     var perAttempt by remember(o.estimatedMicrosPerAttempt) { mutableStateOf(dollars(o.estimatedMicrosPerAttempt)) }
     var batch by remember(o.maxEstimatedBatchMicros) { mutableStateOf(dollars(o.maxEstimatedBatchMicros)) }
+    val focus=LocalFocusManager.current
+    val keyboard=LocalSoftwareKeyboardController.current
     val activity=LocalContext.current as? Activity
     DisposableEffect(activity,key.isNotEmpty()) {
         val window=activity?.window
@@ -45,7 +49,7 @@ data class CloudUiState(val hasKey: Boolean=false,val models: List<String> = emp
         onDispose { if(!hadSecure) window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
     }
     LaunchedEffect(Unit) { onRefreshState() }
-    LaunchedEffect(state.savedRevision) { if(state.savedRevision>0) key="" }
+    LaunchedEffect(state.savedRevision) { if(state.savedRevision>0) { key="";focus.clearFocus();keyboard?.hide() } }
     OutlinedCard(modifier=Modifier.fillMaxWidth().semantics { testTagsAsResourceId=true }) {
         Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.cloud_title),style=MaterialTheme.typography.titleMedium)
