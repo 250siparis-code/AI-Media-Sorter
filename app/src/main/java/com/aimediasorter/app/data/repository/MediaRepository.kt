@@ -1,5 +1,7 @@
 package com.aimediasorter.app.data.repository
 
+import com.aimediasorter.app.data.diagnostics.*
+import com.aimediasorter.app.domain.diagnostics.*
 import android.content.Context
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
@@ -70,10 +72,12 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
     val transferLogsFlow = db.transferLogDao().observeAllLogs()
     val sessionsFlow = db.analysisSessionDao().observeSessions()
 
-    suspend fun ensureDefaultCategories() = db.seedDefaultCategories()
-    suspend fun upsertCategory(category: CategoryEntity) {
-        SafeRelativePath.segments(category.destinationSubfolder)
-        db.categoryDao().upsertCategory(category)
+    suspend fun ensureDefaultCategories() = diagnosed(DiagnosticKind.DATABASE) { op -> op.measure(DiagnosticStage.DATABASE_WRITE) { db.seedDefaultCategories() } }
+    suspend fun upsertCategory(category: CategoryEntity) = diagnosed(DiagnosticKind.SETTINGS) { op ->
+        op.measure(DiagnosticStage.DATABASE_WRITE) {
+            SafeRelativePath.segments(category.destinationSubfolder)
+            db.categoryDao().upsertCategory(category)
+        }
     }
     suspend fun deleteCustomCategory(categoryId: String) {
         operationMutex.withLock {
@@ -93,7 +97,14 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
         updateVirtualCategories(setOf(itemId),setOf(newCategory.id),false)
 
     /** Stage B: transactionally changes database references only. */
-    suspend fun updateVirtualCategories(ids: Set<Long>,categoryIds: Set<String>,defer: Boolean) {
+    suspend fun updateVirtualCategories(ids: Set<Long>,categoryIds: Set<String>,defer: Boolean) =
+        diagnosed(DiagnosticKind.CORRECTION) { op ->
+            op.event(DiagnosticStage.CATEGORY_UPDATE,DiagnosticStatus.STARTED,metrics=mapOf(
+                DiagnosticMetric.ITEM_COUNT to ids.size.toLong(),DiagnosticMetric.CATEGORY_COUNT to categoryIds.size.toLong()))
+            updateVirtualCategoriesImpl(ids,categoryIds,defer)
+            op.event(DiagnosticStage.DATABASE_WRITE,DiagnosticStatus.SUCCEEDED)
+        }
+    private suspend fun updateVirtualCategoriesImpl(ids: Set<Long>,categoryIds: Set<String>,defer: Boolean) {
         operationMutex.withLock {
             val settings=settingsRepository.settingsFlow.first()
             val cats=db.categoryDao().getAllCategories().associateBy { it.id }
@@ -151,7 +162,11 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
         }
     }
 
-    suspend fun reconcileInterruptedTransfers() = withContext(Dispatchers.IO) {
+    suspend fun reconcileInterruptedTransfers() = diagnosed(DiagnosticKind.RECOVERY) { op ->
+        reconcileInterruptedTransfersImpl()
+        op.event(DiagnosticStage.PROCESS_RECOVERY,DiagnosticStatus.SUCCEEDED)
+    }
+    private suspend fun reconcileInterruptedTransfersImpl() = withContext(Dispatchers.IO) {
         operationMutex.withLock { reconcileLocked() }
     }
 
@@ -194,7 +209,12 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
         return cloud.authorize(signature(settings,db.categoryDao().getAllCategories())+";scope="+scope(ids,force),settings.cloudOptions)
     }
 
-    suspend fun executeMediaScanAndAnalysis(settings: AppSettings, cloudBatchId: String = "", selectedIds: Set<Long> = emptySet(), forceReanalysis: Boolean = false) = withContext(Dispatchers.IO) {
+    suspend fun executeMediaScanAndAnalysis(settings: AppSettings,cloudBatchId: String="",selectedIds: Set<Long> = emptySet(),forceReanalysis: Boolean=false) =
+        diagnosed(DiagnosticKind.ANALYSIS_BATCH,batchId=cloudBatchId,model=settings.cloudOptions.model) { operation ->
+            executeMediaScanAndAnalysisImpl(settings,cloudBatchId,selectedIds,forceReanalysis,operation)
+        }
+    private suspend fun executeMediaScanAndAnalysisImpl(settings: AppSettings,cloudBatchId: String,selectedIds: Set<Long>,forceReanalysis: Boolean,
+        diagnostic: DiagnosticOperation) = withContext(Dispatchers.IO) {
         operationMutex.withLock {
             reconcileLocked()
             ensureDefaultCategories()
@@ -214,6 +234,7 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
             var uncertain = 0
             var failed = 0
             var pending = 0
+            diagnostic.event(DiagnosticStage.BATCH_SUMMARY,DiagnosticStatus.STARTED,metrics=summaryMetrics(session,selectedIds.size))
             try {
                 storageScanner.scanCandidates(settings.sourceUri, "",
                     settings.includeSubfolders, settings.mediaTypeFilter, settings.enabledExtensions) {
@@ -232,11 +253,17 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                         if(existing!=null) db.mediaItemDao().updateMediaItem(existing.copy(scanSessionId=session.sessionId))
                         return@collect
                     }
+                    val fileDiagnostic=Diagnostics.operation(DiagnosticKind.MEDIA_ANALYSIS,batchId=diagnostic.batchId,
+                        parentId=diagnostic.id,model=settings.cloudOptions.model)
+                    fileDiagnostic.event(DiagnosticStage.SOURCE_READ,DiagnosticStatus.STARTED,metrics=mapOf(
+                        DiagnosticMetric.ITEM_INDEX to (processed+1).toLong(),DiagnosticMetric.VIDEO to if(candidate.isVideo) 1L else 0L))
                     var sourceChecksum: String? = null
                     try {
                         sourceChecksum = checksum(candidate.uri.toString(), candidate.filePath)
                     } catch (cancelled: CancellationException) { throw cancelled }
                     catch (_: Exception) { /* Transfer remains blocked; analysis may read provider-redacted selected pixels. */ }
+                    fileDiagnostic.event(DiagnosticStage.ORIGINAL_ACCESS,if(sourceChecksum!=null) DiagnosticStatus.SUCCEEDED else DiagnosticStatus.NEEDS_REVIEW,
+                        code=if(sourceChecksum==null) AnalysisCode.LOCAL_SOURCE_ACCESS else null)
                     // Analysis identity may use provider-redacted selected bytes. It is never stored
                     // as the original SHA-256 or accepted by the transfer planner.
                     val analysisIdentity = sourceChecksum ?: try {
@@ -263,13 +290,15 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                                 else existing.timestampStatusNote,
                             diagnosticCode=AnalysisCode.CACHE_HIT.name,apiRequestsSent=0,requestReservations=0,responseHttpStatus=0))
                         skipped++
+                        fileDiagnostic.event(DiagnosticStage.CACHE_HIT,DiagnosticStatus.SUCCEEDED,code=AnalysisCode.CACHE_HIT)
+                        fileDiagnostic.event(DiagnosticStage.REQUEST_NOT_SENT,DiagnosticStatus.INFO,code=AnalysisCode.CACHE_HIT)
                     } else {
                         val metadata = timestampManager.inspectMediaMetadata(candidate.uri, candidate.filePath,
                             candidate.isVideo, candidate.lastModifiedMs)
                         var metrics = try {
                             cloud.analyze(settings, cloudBatchId, configuration+";scope="+scope(selectedIds,forceReanalysis), analysisIdentity, enabled,
                                 candidate.uri, candidate.filePath, candidate.isVideo, metadata.orientationDegrees, metadata.isMirrored,
-                                force=forceReanalysis) {
+                                force=forceReanalysis,diagnostic=fileDiagnostic) {
                                 val live = settingsRepository.settingsFlow.first()
                                 if (live.sourceUri != settings.sourceUri || live.cloudOptions != settings.cloudOptions ||
                                     signature(live, db.categoryDao().getAllCategories()) != configuration)
@@ -335,15 +364,16 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                             diagnosticCode=metrics.diagnosticCode,apiRequestsSent=metrics.apiRequestsSent,
                             requestReservations=metrics.requestReservations,responseHttpStatus=metrics.responseHttpStatus
                         )
-                        db.withTransaction {
+                        fileDiagnostic.measure(DiagnosticStage.DATABASE_WRITE) { db.withTransaction {
                             val id=db.mediaItemDao().upsertMediaItem(entity)
                             db.virtualGalleryDao().clearLinks(id,"PROPOSED")
                             db.virtualGalleryDao().clearLinks(id,"EFFECTIVE")
                             db.virtualGalleryDao().insertLinks(metrics.proposedCategoryIds.map { MediaCategoryLink(id,it,"PROPOSED") })
                             val effective=if(preserveManual) preservedLinks else metrics.proposedCategoryIds
                             db.virtualGalleryDao().insertLinks(effective.map { MediaCategoryLink(id,it,"EFFECTIVE") })
-                        }
+                        } }
                     }
+                    fileDiagnostic.event(DiagnosticStage.DATABASE_WRITE,DiagnosticStatus.SUCCEEDED)
                     processed++
                     val currentRow=db.mediaItemDao().getByUri(candidate.uri.toString())
                     when {
@@ -355,6 +385,13 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                         totalClassified = classified, uncertainCount = uncertain, failedCount = failed,
                         successfulCount=classified-uncertain,pendingCount=pending,apiRequestsSent=cloud.state.sentInBatch(cloudBatchId))
                     db.analysisSessionDao().upsertSession(session)
+                    fileDiagnostic.event(DiagnosticStage.COMPLETE,when(currentRow?.analysisStatus) {
+                        "FAILED"->DiagnosticStatus.FAILED;"PENDING"->DiagnosticStatus.PENDING
+                        else->if(currentRow?.needsManualReview==true) DiagnosticStatus.NEEDS_REVIEW else DiagnosticStatus.SUCCEEDED
+                    },code=AnalysisCode.safely(currentRow?.diagnosticCode.orEmpty()),http=currentRow?.responseHttpStatus?.takeIf { it>0 },
+                        metrics=mapOf(DiagnosticMetric.REQUESTS_SENT to (currentRow?.apiRequestsSent ?: 0).toLong(),
+                            DiagnosticMetric.RESERVATIONS to (currentRow?.requestReservations ?: 0).toLong()))
+                    diagnostic.event(DiagnosticStage.BATCH_SUMMARY,DiagnosticStatus.STARTED,metrics=summaryMetrics(session,if(selectedIds.isNotEmpty()) selectedIds.size else session.totalScanned))
                     val currentCategory = db.mediaItemDao().getByUri(candidate.uri.toString())?.effectiveCategoryName.orEmpty()
                     _analysisProgress.update { it.copy(processedFiles = processed, skippedUnchangedCount = skipped,
                         currentDetectedCategory = currentCategory,currentDiagnosticCode=currentRow?.diagnosticCode.orEmpty(),
@@ -366,12 +403,15 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                 _analysisProgress.update { it.copy(totalFiles=processed) }
                 session = session.copy(completedAtMs = System.currentTimeMillis(), totalScanned = processed, status = "COMPLETED")
                 db.analysisSessionDao().upsertSession(session)
+                diagnostic.event(DiagnosticStage.BATCH_SUMMARY,DiagnosticStatus.SUCCEEDED,metrics=summaryMetrics(session,if(selectedIds.isNotEmpty()) selectedIds.size else session.totalScanned))
             } catch (cancelled: CancellationException) {
                 withContext(NonCancellable) { db.analysisSessionDao().upsertSession(session.copy(status = "CANCELLED")) }
+                diagnostic.event(DiagnosticStage.BATCH_SUMMARY,DiagnosticStatus.CANCELLED,metrics=summaryMetrics(session,if(selectedIds.isNotEmpty()) selectedIds.size else session.totalScanned))
                 _analysisProgress.update { it.copy(errorMessage = "CANCELLED") }
                 throw cancelled
             } catch (error: Exception) {
                 db.analysisSessionDao().upsertSession(session.copy(status = "FAILED"))
+                diagnostic.event(DiagnosticStage.BATCH_SUMMARY,DiagnosticStatus.FAILED,metrics=summaryMetrics(session,if(selectedIds.isNotEmpty()) selectedIds.size else session.totalScanned))
                 _analysisProgress.update { it.copy(errorMessage = when(error) {
                     is CloudFailure->error.diagnostic.message
                     is SecurityException->AnalysisCode.LOCAL_SOURCE_ACCESS.message
@@ -384,11 +424,23 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
         }
     }
 
+    private fun summaryMetrics(session: AnalysisSessionEntity,total: Int)=mapOf(
+        DiagnosticMetric.TOTAL_FILES to total.toLong(),
+        DiagnosticMetric.SUCCESSFUL to session.successfulCount.toLong(),DiagnosticMetric.NEEDS_REVIEW to session.uncertainCount.toLong(),
+        DiagnosticMetric.FAILED to session.failedCount.toLong(),DiagnosticMetric.PENDING to session.pendingCount.toLong(),
+        DiagnosticMetric.REQUESTS_SENT to session.apiRequestsSent.toLong(),
+        DiagnosticMetric.PROCESSED to (session.totalClassified+session.failedCount+session.pendingCount).toLong())
+
     /** Legacy entry point cannot turn classification approval into an implicit operation plan. */
     suspend fun executeVerifiedTransfers(settings: AppSettings,includeReviewFlaggedItems: Boolean=false): List<SingleTransferOutcome> =
         error("Use a selected-media physical operation preview and explicitly approve that plan.")
 
     suspend fun previewOperations(ids: Set<Long>,method: TransferMethod,moveTargets: Map<Long,String>): OperationPreview =
+        diagnosed(DiagnosticKind.OPERATION_PLAN) { op ->
+            op.event(DiagnosticStage.PREVIEW,DiagnosticStatus.STARTED,metrics=mapOf(DiagnosticMetric.ITEM_COUNT to ids.size.toLong()))
+            previewOperationsImpl(ids,method,moveTargets)
+        }
+    private suspend fun previewOperationsImpl(ids: Set<Long>,method: TransferMethod,moveTargets: Map<Long,String>): OperationPreview =
         operationMutex.withLock {
             require(ids.size in 1..100) { "Select 1 to 100 media items per physical plan." }
             val settings=settingsRepository.settingsFlow.first()
@@ -427,7 +479,12 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
         }
 
     /** Persist only after explicit UI confirmation; preview and virtual corrections never reach storage writes. */
-    suspend fun approveOperationPreview(preview: OperationPreview): List<String> = operationMutex.withLock {
+    suspend fun approveOperationPreview(preview: OperationPreview): List<String> = diagnosed(DiagnosticKind.OPERATION_PLAN) { op ->
+        val result=approveOperationPreviewImpl(preview)
+        op.event(DiagnosticStage.APPROVAL,DiagnosticStatus.SUCCEEDED,metrics=mapOf(DiagnosticMetric.ITEM_COUNT to result.size.toLong()))
+        result
+    }
+    private suspend fun approveOperationPreviewImpl(preview: OperationPreview): List<String> = operationMutex.withLock {
         val current=settingsRepository.settingsFlow.first()
         require(current.sourceUri==preview.settings.sourceUri && current.destinationUri==preview.settings.destinationUri &&
             current.timestampPolicy==preview.settings.timestampPolicy && current.collisionPolicy==preview.settings.collisionPolicy &&
@@ -457,7 +514,9 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
         }
     }
 
-    suspend fun executePhysicalPlans(settings: AppSettings,ids: List<String>) = withContext(Dispatchers.IO) {
+    suspend fun executePhysicalPlans(settings: AppSettings,ids: List<String>) =
+        diagnosed(DiagnosticKind.OPERATION_PLAN) { operation -> executePhysicalPlansImpl(settings,ids,operation) }
+    private suspend fun executePhysicalPlansImpl(settings: AppSettings,ids: List<String>,diagnostic: DiagnosticOperation) = withContext(Dispatchers.IO) {
         operationMutex.withLock {
             reconcileLocked()
             require(ids.size in 1..100 && ids.distinct().size==ids.size)
@@ -468,6 +527,10 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
             var done=0;var failed=0;var retained=0;var timestampCount=0
             try {
                 for(step in steps) {
+                    val transferDiagnostic=Diagnostics.operation(if(step.method=="MOVE") DiagnosticKind.MOVE else DiagnosticKind.COPY,
+                        batchId=step.groupId,parentId=diagnostic.id)
+                    try {
+                    transferDiagnostic.event(DiagnosticStage.PREFLIGHT,DiagnosticStatus.STARTED)
                     currentCoroutineContext().ensureActive()
                     val live=settingsRepository.settingsFlow.first()
                     require(live.operationMode==OperationMode.MOVE_FILES && live.sourceUri==settings.sourceUri &&
@@ -489,6 +552,7 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                             }
                         }
                     }
+                    transferDiagnostic.event(DiagnosticStage.PREFLIGHT,DiagnosticStatus.SUCCEEDED)
                     val journalId=step.id
                     var journal=TransferJournalEntity(journalId,item.id,live.sourceUri,item.uriString,step.method,
                         "PREPARED",null,null,step.sourceHash,item.originalLastModifiedMs,0,false,System.currentTimeMillis(),"")
@@ -505,6 +569,9 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                         effectiveCategoryName=category.name),live.sourceUri,step.destinationRoot,step.destinationFolder,
                         OperationMode.MOVE_FILES,TransferMethod.valueOf(step.method),live.collisionPolicy,live.timestampPolicy) { checkpoint ->
                         currentCoroutineContext().ensureActive()
+                        transferDiagnostic.event(if(checkpoint.phase=="SOURCE_DELETE_PENDING") DiagnosticStage.SOURCE_DELETE_PENDING else DiagnosticStage.TRANSFER_CHECKPOINT,
+                            DiagnosticStatus.INFO,metrics=mapOf(DiagnosticMetric.TIMESTAMP_PRESERVED to if(checkpoint.timestampPreserved) 1L else 0L),
+                            transferPhase=DiagnosticTransferPhase.entries.firstOrNull { it.name==checkpoint.phase } ?: DiagnosticTransferPhase.OTHER)
                         if(checkpoint.phase=="SOURCE_DELETE_PENDING") {
                             val now=settingsRepository.settingsFlow.first()
                             val row=db.mediaItemDao().getMediaItemById(item.id)
@@ -527,6 +594,13 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                     val verified=outcome.status in setOf(TransferItemStatus.COMPLETED_VERIFIED,
                         TransferItemStatus.COMPLETED_TIMESTAMP_WARNING,TransferItemStatus.COMPLETED_SOURCE_RETAINED) &&
                         outcome.sha256Checksum==step.sourceHash && outcome.destinationUriString!=null
+                    transferDiagnostic.event(DiagnosticStage.INTEGRITY_VERIFIED,if(verified) DiagnosticStatus.SUCCEEDED else DiagnosticStatus.FAILED,
+                        error=if(verified) DiagnosticError.NONE else DiagnosticError.TRANSFER_NOT_VERIFIED,
+                        metrics=mapOf(DiagnosticMetric.VERIFIED to if(verified) 1L else 0L))
+                    transferDiagnostic.event(DiagnosticStage.TIMESTAMP_RESULT,DiagnosticStatus.INFO,metrics=mapOf(
+                        DiagnosticMetric.TIMESTAMP_PRESERVED to if(outcome.timestampPreserved) 1L else 0L))
+                    transferDiagnostic.event(DiagnosticStage.COMPLETE,if(verified) DiagnosticStatus.SUCCEEDED else DiagnosticStatus.FAILED,
+                        metrics=mapOf(DiagnosticMetric.SOURCE_RETAINED to if(step.method=="COPY" || outcome.status==TransferItemStatus.COMPLETED_SOURCE_RETAINED) 1L else 0L))
                     val stored=step.copy(status=outcome.status.name,destinationUri=outcome.destinationUriString,note=outcome.detailsMessage)
                     db.withTransaction {
                         db.virtualGalleryDao().updatePlan(stored)
@@ -548,6 +622,7 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                         failedCount=failed,sourceRetainedCount=retained,timestampVerifiedCount=timestampCount,
                         statusMessage=outcome.detailsMessage) }
                     if(!verified) error("A destination did not verify. Remaining operations stopped; inspect the plan.")
+                    } catch(error: Throwable) { transferDiagnostic.failure(error);throw error }
                 }
             } catch(cancelled: CancellationException) {
                 withContext(NonCancellable) {

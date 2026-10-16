@@ -1,5 +1,7 @@
 package com.aimediasorter.app.ui.screens
 
+import com.aimediasorter.app.data.diagnostics.Diagnostics
+import com.aimediasorter.app.domain.diagnostics.*
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
@@ -92,6 +94,8 @@ import java.util.Date
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable fun FullMediaViewer(item: MediaItemEntity,onDismiss: ()->Unit) {
     val context=LocalContext.current
+    val diagnostic=remember(item.id) { Diagnostics.operation(DiagnosticKind.GALLERY) }
+    LaunchedEffect(item.id) { diagnostic.event(DiagnosticStage.FULLSCREEN_OPEN) }
     var scale by remember { mutableFloatStateOf(1f) }
     var x by remember { mutableFloatStateOf(0f) };var y by remember { mutableFloatStateOf(0f) }
     var error by remember { mutableStateOf(false) }
@@ -102,7 +106,7 @@ import java.util.Date
     Dialog(onDismissRequest=onDismiss,properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)) {
         Box(Modifier.fillMaxSize().semantics { testTagsAsResourceId=true }.testTag("full-media-viewer").background(AmoledPureBlack).windowInsetsPadding(WindowInsets.safeDrawing)) {
             AsyncImage(request,contentDescription=if(loaded) item.fileName else null,contentScale=ContentScale.Fit,
-                onSuccess={loaded=true;error=false},onError={error=true;loaded=false},modifier=Modifier.fillMaxSize().pointerInput(Unit) {
+                onSuccess={loaded=true;error=false;diagnostic.event(DiagnosticStage.FULLSCREEN_OPEN,DiagnosticStatus.SUCCEEDED)},onError={error=true;loaded=false;diagnostic.event(DiagnosticStage.FULLSCREEN_OPEN,DiagnosticStatus.FAILED)},modifier=Modifier.fillMaxSize().pointerInput(Unit) {
                     detectTransformGestures { _,pan,zoom,_ ->
                         scale=(scale*zoom).coerceIn(1f,5f)
                         x=if(scale==1f) 0f else (x+pan.x).coerceIn(-3000f,3000f)
