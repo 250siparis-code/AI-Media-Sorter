@@ -11,7 +11,7 @@ import java.time.ZoneOffset
 import java.util.UUID
 
 /** Isolated feature DB; never changes transfer Room schema or records. */
-class CloudStateStore(context: Context, databaseName: String = "gemini_private_state.db") : SQLiteOpenHelper(context,databaseName,null,2) {
+class CloudStateStore(context: Context, databaseName: String = "gemini_private_state.db") : SQLiteOpenHelper(context,databaseName,null,3) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE pacing (id INTEGER NOT NULL PRIMARY KEY,nextAt INTEGER NOT NULL)")
         db.execSQL("CREATE TABLE verified_models (revision INTEGER NOT NULL,name TEXT NOT NULL,updated INTEGER NOT NULL,PRIMARY KEY(revision,name))")
@@ -20,14 +20,24 @@ class CloudStateStore(context: Context, databaseName: String = "gemini_private_s
         db.execSQL("CREATE TABLE grants (id TEXT PRIMARY KEY NOT NULL,signature TEXT NOT NULL,revision INTEGER NOT NULL,expires INTEGER NOT NULL,used INTEGER NOT NULL,spent INTEGER NOT NULL,maxRequests INTEGER NOT NULL,dailyLimit INTEGER NOT NULL,perAttempt INTEGER NOT NULL,maxCost INTEGER NOT NULL)")
         db.execSQL("CREATE TABLE daily (day TEXT PRIMARY KEY NOT NULL,used INTEGER NOT NULL,inputTokens INTEGER NOT NULL,outputTokens INTEGER NOT NULL)")
         db.execSQL("CREATE TABLE attempts (id TEXT PRIMARY KEY NOT NULL,error TEXT NOT NULL)")
+        createRequestCounts(db)
+    }
+    private fun createRequestCounts(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE request_counts (batch TEXT NOT NULL,cacheKey TEXT NOT NULL,sent INTEGER NOT NULL,reserved INTEGER NOT NULL,PRIMARY KEY(batch,cacheKey))")
     }
     override fun onUpgrade(db: SQLiteDatabase,old: Int,new: Int) {
-        if(old==1 && new==2) {
+        require(old in 1..2 && new==3) { "Explicit cloud-state migration required." }
+        if(old<2) {
             db.execSQL("CREATE TABLE pacing (id INTEGER NOT NULL PRIMARY KEY,nextAt INTEGER NOT NULL)")
             db.execSQL("CREATE TABLE verified_models (revision INTEGER NOT NULL,name TEXT NOT NULL,updated INTEGER NOT NULL,PRIMARY KEY(revision,name))")
         }
-        else error("Explicit cloud-state migration required.")
+        createRequestCounts(db)
     }
+    fun recordSent(batch: String,cacheKey: String) {
+        writableDatabase.execSQL("UPDATE request_counts SET sent=sent+1 WHERE batch=? AND cacheKey=?",arrayOf(batch,cacheKey))
+    }
+    fun sentInBatch(batch: String): Int=readableDatabase.rawQuery(
+        "SELECT COALESCE(SUM(sent),0) FROM request_counts WHERE batch=?",arrayOf(batch)).use { c->c.moveToFirst();c.getInt(0) }
     fun unverifyModel(revision: Int,name: String) { writableDatabase.delete("verified_models","revision=? AND name=?",arrayOf(revision.toString(),name)) }
     fun markModelVerified(revision: Int,name: String) {
         writableDatabase.insertWithOnConflict("verified_models",null,ContentValues().apply {
@@ -71,7 +81,7 @@ class CloudStateStore(context: Context, databaseName: String = "gemini_private_s
         }
     }
     private fun day()=LocalDate.now(ZoneOffset.UTC).toString()
-    @Synchronized fun reserve(batch: String,signature: String,revision: Int,minimumIntervalMs: Long=0): Long {
+    @Synchronized fun reserve(batch: String,signature: String,revision: Int,minimumIntervalMs: Long=0,traceKey: String?=null): Long {
         var waitMs=0L
         val db=writableDatabase;db.beginTransaction()
         try {
@@ -85,6 +95,10 @@ class CloudStateStore(context: Context, databaseName: String = "gemini_private_s
                     throw CloudFailure(CloudErrorKind.BUDGET)
                 db.execSQL("UPDATE grants SET used=used+1,spent=spent+perAttempt WHERE id=?",arrayOf(batch))
                 db.execSQL("UPDATE daily SET used=used+1 WHERE day=?",arrayOf(today))
+            }
+            if(traceKey!=null) {
+                db.execSQL("INSERT OR IGNORE INTO request_counts VALUES (?,?,0,0)",arrayOf(batch,traceKey))
+                db.execSQL("UPDATE request_counts SET reserved=reserved+1 WHERE batch=? AND cacheKey=?",arrayOf(batch,traceKey))
             }
             if(minimumIntervalMs>0) {
                 val now=System.currentTimeMillis()
@@ -105,7 +119,7 @@ class CloudStateStore(context: Context, databaseName: String = "gemini_private_s
         val result=writableDatabase.insertWithOnConflict("attempts",null,ContentValues().apply { put("id",id);put("error","NETWORK") },SQLiteDatabase.CONFLICT_IGNORE)
         if(result==-1L) {
             val kind=readableDatabase.rawQuery("SELECT error FROM attempts WHERE id=?",arrayOf(id)).use { c -> c.moveToFirst();c.getString(0) }
-            throw CloudFailure(runCatching { CloudErrorKind.valueOf(kind) }.getOrDefault(CloudErrorKind.NETWORK))
+            throw CloudFailure(runCatching { CloudErrorKind.valueOf(kind) }.getOrDefault(CloudErrorKind.NETWORK),AnalysisCode.ATTEMPT_UNCERTAIN)
         }
     }
     fun failed(batch: String,id: String,kind: CloudErrorKind) {

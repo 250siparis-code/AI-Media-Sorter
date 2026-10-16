@@ -58,6 +58,8 @@ import java.util.Date
             analysis.subjects.forEach { Text("• "+it.description+" ("+it.importance+")") }
             if(analysis.details.isNotEmpty()) Text(analysis.details.joinToString(" • "))
         } else if(item.primarySubjectNote.isNotBlank()) Text(item.primarySubjectNote,color=StatusAmber)
+        AnalysisDiagnosticDetails(item.diagnosticCode,item.apiRequestsSent,item.requestReservations,item.responseHttpStatus)
+        if(item.sha256Checksum==null) Text(stringResource(R.string.analysis_original_unavailable),color=StatusAmber)
         Text(stringResource(R.string.virtual_model)+": "+item.analysisModel)
         Text(stringResource(R.string.virtual_analyzed)+": "+DateFormat.getDateTimeInstance().format(Date(item.analyzedAtMs)))
         Text(stringResource(R.string.cloud_score_unavailable),style=MaterialTheme.typography.bodySmall)

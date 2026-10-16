@@ -51,25 +51,18 @@ data class CloudResponse(val decision: CloudDecision, val inputTokens: Int, val 
 data class CloudHttpResponse(val code: Int, val body: String, val retryAfterSeconds: Long = 0)
 fun interface CloudTransport {
     suspend fun request(path: String, apiKey: String, body: String?): CloudHttpResponse
+    /** Mock transports acknowledge at dispatch; the real transport overrides at completed body write. */
+    suspend fun request(path: String,apiKey: String,body: String,onSent: ()->Unit): CloudHttpResponse {
+        onSent()
+        return request(path,apiKey,body)
+    }
 }
 enum class CloudErrorKind { AUTH, BILLING, QUOTA, NETWORK, TIMEOUT, MODEL, REQUEST, RESPONSE, CONFIG, CONSENT, BUDGET, BLOCKED, SERVER }
-class CloudFailure(val kind: CloudErrorKind) : Exception("Gemini: " + when(kind) {
-    CloudErrorKind.SERVER -> "Google service is temporarily unavailable. Retry with explicit consent."
-    CloudErrorKind.AUTH -> "Authentication failed. Check the complete key, project access and key restrictions."
-    CloudErrorKind.BILLING -> "Project billing or payment is unavailable. No billing settings were changed."
-    CloudErrorKind.QUOTA -> "Quota exceeded or rate limited. Wait before retrying; check the Free Tier quota."
-    CloudErrorKind.NETWORK -> "Network error. The request outcome may be uncertain; review before retrying."
-    CloudErrorKind.TIMEOUT -> "Connection timed out. The request outcome may be uncertain; review before retrying."
-    CloudErrorKind.MODEL -> "Model unavailable or incompatible. Refresh models and choose another model."
-    CloudErrorKind.REQUEST -> "Request rejected (HTTP 400). Check model compatibility and request configuration."
-    CloudErrorKind.RESPONSE -> "Malformed, incomplete, or unsupported response. No category was guessed."
-    CloudErrorKind.CONFIG -> "Save a key, load available models and select a model."
-    CloudErrorKind.CONSENT -> "Batch consent expired or the selected source, credentials or configuration changed."
-    CloudErrorKind.BUDGET -> "Local batch, daily request or estimated spending limit reached."
-    CloudErrorKind.BLOCKED -> "Google declined this content. Manual review is required."
-})
+class CloudFailure(val kind: CloudErrorKind,val diagnostic: AnalysisCode=AnalysisCode.forKind(kind)) :
+    Exception("Gemini ["+diagnostic.name+"]: "+diagnostic.message)
+
 object CloudProtocol {
-    const val VERSION = "gemini-independent-subjects-v2;rgb-jpeg512;video-3-distinct-frames"
+    const val VERSION = "gemini-independent-subjects-v2;rgb-jpeg512;video-3-distinct-frames;selected-uri-v1"
     fun categories(categories: List<CategoryEntity>) = JsonArray(categories.sortedBy { it.id }.map {
         buildJsonObject { put("id", it.id); put("name", it.name); put("description", it.description) }
     })
@@ -136,25 +129,32 @@ object CloudProtocol {
         }.toString()
     }
     fun parseResponse(raw: String, allowed: Set<String>): CloudResponse {
+        var stage=AnalysisCode.RESPONSE_ENVELOPE
         try {
             val root=Json.parseToJsonElement(raw).jsonObject
             val candidate=root["candidates"]?.jsonArray?.singleOrNull()?.jsonObject
-                ?: throw CloudFailure(if(root["promptFeedback"]!=null) CloudErrorKind.BLOCKED else CloudErrorKind.RESPONSE)
+                ?: throw CloudFailure(if(root["promptFeedback"]!=null) CloudErrorKind.BLOCKED else CloudErrorKind.RESPONSE,
+                    if(root["promptFeedback"]!=null) AnalysisCode.RESPONSE_BLOCKED else AnalysisCode.RESPONSE_ENVELOPE)
             val finish=candidate["finishReason"]?.jsonPrimitive?.content
             if(finish in setOf("SAFETY","RECITATION","BLOCKLIST","PROHIBITED_CONTENT")) throw CloudFailure(CloudErrorKind.BLOCKED)
-            if(finish!="STOP") throw CloudFailure(CloudErrorKind.RESPONSE)
+            if(finish=="MAX_TOKENS") throw CloudFailure(CloudErrorKind.RESPONSE,AnalysisCode.RESPONSE_MAX_TOKENS)
+            if(finish!="STOP") throw CloudFailure(CloudErrorKind.RESPONSE,AnalysisCode.RESPONSE_FINISH)
             val text=candidate["content"]!!.jsonObject["parts"]!!.jsonArray
                 .filter { it.jsonObject["thought"]?.jsonPrimitive?.booleanOrNull != true }
                 .mapNotNull { it.jsonObject["text"]?.jsonPrimitive?.content }.joinToString("")
+            stage=AnalysisCode.RESPONSE_JSON
             val obj=Json.parseToJsonElement(text).jsonObject
+            stage=AnalysisCode.RESPONSE_SCHEMA
             require(obj.keys==setOf("categories","subjects","pose","scene","details","reason","review_status"))
             fun str(v: JsonElement?,max: Int=240,empty: Boolean=false): String {
                 val p=v!!.jsonPrimitive;require(p.isString)
                 val s=p.content;require(s.length in (if(empty) 0 else 1)..max && s.none { it.isISOControl() })
                 return s
             }
+            stage=AnalysisCode.RESPONSE_CATEGORIES
             val cats=obj["categories"]!!.jsonArray.map { str(it,160) }
             require(cats.size<=minOf(allowed.size,50) && cats.distinct().size==cats.size && cats.all { it in allowed })
+            stage=AnalysisCode.RESPONSE_SCHEMA
             val subjects=obj["subjects"]!!.jsonArray.map {
                 val subject=it.jsonObject;require(subject.keys==setOf("description","importance"))
                 val importance=str(subject["importance"])
@@ -173,7 +173,7 @@ object CloudProtocol {
                 (count("candidatesTokenCount").toLong()+count("thoughtsTokenCount")).coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
         } catch(cancelled: CancellationException) { throw cancelled }
         catch(known: CloudFailure) { throw known }
-        catch(_: Exception) { throw CloudFailure(CloudErrorKind.RESPONSE) }
+        catch(_: Exception) { throw CloudFailure(CloudErrorKind.RESPONSE,stage) }
     }
 }
 class GeminiClient(private val transport: CloudTransport, private val wait: suspend (Long)->Unit={ delay(it) }) {
@@ -202,12 +202,14 @@ class GeminiClient(private val transport: CloudTransport, private val wait: susp
         catch(_: Exception) { throw CloudFailure(CloudErrorKind.RESPONSE) }
     }
     suspend fun classify(key: String,options: CloudOptions,categories: List<CategoryEntity>,images: List<CloudImage>,
-                         reserveAttempt: suspend ()->Unit): CloudResponse {
+                         trace: CloudRequestTrace=CloudRequestTrace(),reserveAttempt: suspend ()->Unit): CloudResponse {
         if(!options.ready()) throw CloudFailure(CloudErrorKind.CONFIG)
-        val body=CloudProtocol.request(categories,images,options)
+        val body=try { CloudProtocol.request(categories,images,options) }
+            catch(_: IllegalArgumentException) { throw CloudFailure(CloudErrorKind.REQUEST,AnalysisCode.REQUEST_BUILD) }
         for(attempt in 0..options.retries) {
             reserveAttempt()
-            val r=transport.request(options.model+":generateContent",key,body)
+            val r=transport.request(options.model+":generateContent",key,body,trace::bodySent)
+            trace.httpStatus=r.code
             if(r.code==200) {
                 val parsed=CloudProtocol.parseResponse(r.body,categories.map { it.id }.toSet())
                 return parsed.copy(decision=parsed.decision.redact(key))
@@ -220,18 +222,17 @@ class GeminiClient(private val transport: CloudTransport, private val wait: susp
     }
     private fun checkHttp(r: CloudHttpResponse) {
         if(r.code==200) return
-        // Raw provider text is never displayed or logged.
-        throw CloudFailure(when {
+        // Raw provider text is inspected only for the error class; never displayed or logged.
+        val kind=when {
             r.code==401 || (r.code==400 && (r.body.contains("API_KEY_INVALID",true) || r.body.contains("API key not valid",true))) -> CloudErrorKind.AUTH
             r.code==404 -> CloudErrorKind.MODEL
-            // Quota messages commonly link to plan/billing help. That text must
-            // never override HTTP 429 or suppress its bounded retry/backoff.
             r.code==429 -> CloudErrorKind.QUOTA
             r.code>=500 -> CloudErrorKind.SERVER
             r.code==402 || (r.code in setOf(400,403) && r.body.contains("billing",true)) -> CloudErrorKind.BILLING
             r.code==403 -> CloudErrorKind.AUTH
             r.code==400 -> CloudErrorKind.REQUEST
             else -> CloudErrorKind.RESPONSE
-        })
+        }
+        throw CloudFailure(kind,if(kind==CloudErrorKind.RESPONSE) AnalysisCode.HTTP_UNEXPECTED else AnalysisCode.forKind(kind))
     }
 }
