@@ -92,6 +92,16 @@ class CloudProtocolTest {
         client.classify("synthetic",options,categories,image) { reserved++ }
         assertEquals(2,requests);assertEquals(2,reserved);assertEquals(listOf(2000L),waits)
     }
+    @Test fun quotaHelpMentioningBillingPreservesQuotaStateAndBoundedBackoff()=runBlocking {
+        val quota="""{"error":{"code":429,"status":"RESOURCE_EXHAUSTED","message":"Quota exceeded; check your plan and billing details."}}"""
+        var requests=0;var reserved=0;val waits=mutableListOf<Long>()
+        val client=GeminiClient(CloudTransport { _,_,_->requests++;CloudHttpResponse(429,quota,2) },{waits+=it})
+        failure(CloudErrorKind.QUOTA) { runBlocking { client.classify("synthetic",options,categories,image) { reserved++ } } }
+        assertEquals(2,requests);assertEquals(2,reserved);assertEquals(listOf(2000L),waits)
+        failure(CloudErrorKind.QUOTA) { runBlocking { client.models("synthetic") } }
+        val server=GeminiClient(CloudTransport { _,_,_->CloudHttpResponse(503,"Service unavailable; see billing help.") })
+        failure(CloudErrorKind.SERVER) { runBlocking { server.classify("synthetic",options.copy(retries=0),categories,image) {} } }
+    }
     @Test fun localBudgetFailurePreventsAnyUpload()=runBlocking {
         var calls=0
         val client=GeminiClient(CloudTransport { _,_,_->calls++;CloudHttpResponse(200,response()) })
