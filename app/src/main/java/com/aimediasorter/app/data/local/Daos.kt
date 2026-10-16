@@ -108,3 +108,27 @@ interface TransferJournalDao {
     @Query("SELECT * FROM transfer_journal WHERE phase NOT IN ('FINALIZED', 'RECOVERED', 'FAILED', 'CANCELLED')")
     suspend fun unfinished(): List<TransferJournalEntity>
 }
+
+@Dao
+interface VirtualGalleryDao {
+    @Query("SELECT l.* FROM media_category_links l INNER JOIN media_items m ON m.id=l.mediaId WHERE m.sourceRootUri=:source")
+    fun observeLinks(source: String): Flow<List<MediaCategoryLink>>
+    @Query("SELECT * FROM media_category_links WHERE mediaId=:id")
+    suspend fun links(id: Long): List<MediaCategoryLink>
+    @Insert(onConflict=OnConflictStrategy.REPLACE)
+    suspend fun insertLinks(links: List<MediaCategoryLink>)
+    @Query("DELETE FROM media_category_links WHERE mediaId=:id AND origin=:origin")
+    suspend fun clearLinks(id: Long,origin: String)
+    @Query("SELECT * FROM physical_plans ORDER BY groupId,sequence")
+    fun observePlans(): Flow<List<PhysicalPlanEntity>>
+    @Query("SELECT * FROM physical_plans WHERE id IN (:ids) ORDER BY groupId,sequence")
+    suspend fun plans(ids: List<String>): List<PhysicalPlanEntity>
+    @Query("SELECT * FROM physical_plans WHERE mediaId=:id")
+    suspend fun plansForMedia(id: Long): List<PhysicalPlanEntity>
+    @Insert(onConflict=OnConflictStrategy.ABORT)
+    suspend fun insertPlans(plans: List<PhysicalPlanEntity>)
+    @Update
+    suspend fun updatePlan(plan: PhysicalPlanEntity)
+    @Query("UPDATE physical_plans SET status='RECOVERY_REQUIRED',note='Interrupted operation. Inspect verified destinations before retrying; source deletion was not resumed.' WHERE status='RUNNING'")
+    suspend fun recoverRunningPlans()
+}

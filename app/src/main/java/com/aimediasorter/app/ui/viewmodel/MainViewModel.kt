@@ -115,11 +115,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         options.validate()
         repo.cloud.state.revokeAll()
         workManager.cancelUniqueWork(MediaAnalysisWorker.WORK_NAME)
-        settingsRepo.updateCloudOptions(options)
+        settingsRepo.updateCloudOptions(options.copy(mode=AnalysisMode.GEMINI))
+        _cloudUi.value=_cloudUi.value.copy(message="MODEL_SAVED",failure=null,error=null)
     } }
     fun saveGeminiKey(value: String) { launchSafely {
         if (_cloudUi.value.busy) return@launchSafely
-        _cloudUi.value=_cloudUi.value.copy(busy=true,error=null,message=null)
+        _cloudUi.value=_cloudUi.value.copy(busy=true,error=null,message=null,failure=null)
         try {
             workManager.cancelUniqueWork(MediaAnalysisWorker.WORK_NAME)
             repo.cloud.state.revokeAll()
@@ -128,28 +129,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _cloudUi.value=_cloudUi.value.copy(hasKey=true,models=repo.cloud.state.models(repo.cloud.vault.revision),
                 message="SAVED",savedRevision=_cloudUi.value.savedRevision+1)
         } catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) { _cloudUi.value=_cloudUi.value.copy(error="Key could not be saved securely. Check the complete key and try again.") }
+        catch (_: Exception) { _cloudUi.value=_cloudUi.value.copy(error="SAVE") }
         finally { _cloudUi.value=_cloudUi.value.copy(busy=false) }
     } }
     fun clearGeminiKey() { launchSafely {
         if (_cloudUi.value.busy) return@launchSafely
-        _cloudUi.value=_cloudUi.value.copy(busy=true,error=null,message=null)
+        _cloudUi.value=_cloudUi.value.copy(busy=true,error=null,message=null,failure=null)
         try {
             workManager.cancelUniqueWork(MediaAnalysisWorker.WORK_NAME)
             repo.cloud.state.revokeAll();repo.cloud.vault.clear()
             _cloudUi.value=_cloudUi.value.copy(hasKey=false,models=emptyList(),message="DELETED")
         } catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) { _cloudUi.value=_cloudUi.value.copy(error="Key could not be deleted securely. Try again.") }
+        catch (_: Exception) { _cloudUi.value=_cloudUi.value.copy(error="DELETE") }
         finally { _cloudUi.value=_cloudUi.value.copy(busy=false) }
     } }
     fun refreshGeminiModels() { launchSafely {
-        _cloudUi.value = _cloudUi.value.copy(busy=true,error=null)
+        _cloudUi.value = _cloudUi.value.copy(busy=true,error=null,message=null,failure=null)
         try {
             val models=repo.cloud.refreshModels()
-            _cloudUi.value = _cloudUi.value.copy(models=models,hasKey=true)
+            _cloudUi.value = _cloudUi.value.copy(models=models,hasKey=true,message=if(models.isEmpty()) null else "CONNECTED",failure=if(models.isEmpty()) CloudErrorKind.MODEL else null)
         } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-        catch (known: CloudFailure) { _cloudUi.value=_cloudUi.value.copy(error=known.message) }
-        catch (_: Exception) { _cloudUi.value=_cloudUi.value.copy(error="Gemini model catalog could not be verified.") }
+        catch (known: CloudFailure) { _cloudUi.value=_cloudUi.value.copy(failure=known.kind) }
+        catch (_: Exception) { _cloudUi.value=_cloudUi.value.copy(failure=CloudErrorKind.RESPONSE) }
+        finally { _cloudUi.value=_cloudUi.value.copy(busy=false) }
+    } }
+    fun testGeminiModel() { launchSafely {
+        if(_cloudUi.value.busy) return@launchSafely
+        _cloudUi.value=_cloudUi.value.copy(busy=true,error=null,failure=null,message=null)
+        try {
+            repo.cloud.testSelectedModel(settingsRepo.settingsFlow.first().cloudOptions)
+            _cloudUi.value=_cloudUi.value.copy(message="MODEL_OK",usage=repo.cloud.state.usage())
+        } catch(cancelled: CancellationException) { throw cancelled }
+        catch(error: CloudFailure) { _cloudUi.value=_cloudUi.value.copy(failure=error.kind) }
+        catch(_: Exception) { _cloudUi.value=_cloudUi.value.copy(failure=CloudErrorKind.RESPONSE) }
         finally { _cloudUi.value=_cloudUi.value.copy(busy=false) }
     } }
     fun dismissCloudConsent() { _cloudConsent.value=false }
@@ -320,8 +332,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         activeAnalysisJob = launchSafely {
             repo.setAnalysisPaused(false)
             val settings = settingsRepo.settingsFlow.first()
-            if(settings.cloudOptions.mode != AnalysisMode.OFFLINE) _cloudConsent.value=true
-            else enqueueAnalysis(settings)
+            _cloudConsent.value=true
         }
     }
 
