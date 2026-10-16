@@ -48,11 +48,21 @@ class GeminiSettingsUiTest {
             fail("Encrypted key persistence did not complete.")
         }
         fun saveKey(value: String) {
-            control("gemini-key-input").text=value
+            val field=control("gemini-key-input")
+            field.click()
+            // Fixed synthetic fixture only: exercise actual Android key input rather than
+            // setting text on an outer Compose accessibility node.
+            device.executeShellCommand("input text "+value)
             device.waitForIdle()
-            val save=control("gemini-save-key")
-            assertTrue("AQ. must enable Save without a selected model.",save.isEnabled)
-            save.click();awaitKey(value);device.waitForIdle()
+            control("gemini-save-key")
+            val save=device.wait(Until.findObject(By.res("gemini-save-key").enabled(true)),10_000)
+            if(save==null) {
+                val inputs=device.findObjects(By.clazz("android.widget.EditText")).map {
+                    "class="+it.className+",chars="+(it.text?.length ?: 0)+",focused="+it.isFocused
+                }
+                fail("AQ. must enable Save without a selected model. Sanitized input state: "+inputs)
+            }
+            requireNotNull(save).click();awaitKey(value);device.waitForIdle()
         }
         try {
             activity=instrumentation.startActivitySync(intent);device.waitForIdle();openSettings()
