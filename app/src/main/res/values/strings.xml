@@ -363,4 +363,27 @@
     <string name="analysis_original_unavailable">Original-byte access is unavailable. Virtual analysis is available; COPY/MOVE remains blocked.</string>
     <string name="analysis_counts_unknown">Older results do not have complete outcome counts.</string>
     <string name="analysis_count_unknown">unknown</string>
+    <string name="diagnostics_title">Diagnostics</string>
+    <string name="diagnostics_privacy">Logs stay on this device. Export shares only technical events and random operation IDs. Keys, filenames, paths, pixels and Gemini response text are excluded. Nothing is uploaded automatically.</string>
+    <string name="diagnostics_retention">Retention: at most 10 MB, 4,000 events and 20 batch summaries for 7 days, with automatic rotation. This screen shows 200 recent events. Rotated or cleared history cannot be recovered.</string>
+    <string name="diagnostics_health">Dropped events: %1$d · Storage failures this process: %2$d</string>
+    <string name="diagnostics_errors">Errors / pending</string>
+    <string name="diagnostics_batch">Current batch</string>
+    <string name="diagnostics_export_batch">Export Last Analysis Report</string>
+    <string name="diagnostics_export_all">Export All Diagnostic Logs</string>
+    <string name="diagnostics_saving">Saving diagnostic report…</string>
+    <string name="diagnostics_saved">Diagnostic report saved.</string>
+    <string name="diagnostics_export_failed">Diagnostic export failed. Check destination access and available space.</string>
+    <string name="diagnostics_summary">Latest analysis summary</string>
+    <string name="diagnostics_empty">No matching diagnostic events.</string>
+    <string name="diagnostics_elapsed">Elapsed since operation start: %1$d ms</string>
+    <string name="diagnostics_preview">Diagnostic export preview</string>
+    <string name="diagnostics_preview_size">File size: %1$d bytes · Events: %2$d. Only the previewed snapshot will be saved.</string>
+    <string name="diagnostics_save">Save locally</string>
+    <string name="diagnostics_clear">Clear Diagnostic Logs</string>
+    <string name="diagnostics_clear_confirm">Delete retained diagnostic events and analysis reports? Media, classifications, API keys and transfer records are unaffected. New events may be recorded after clearing.</string>
+    <string name="diagnostics_cleared">Diagnostic logs cleared.</string>
+    <string name="diagnostics_failure_count">Analysis failed: %1$d. Export the last analysis report for technical details.</string>
+    <string name="diagnostics_no_report">No retained analysis report is available.</string>
+    <string name="diagnostics_historical">Historical saved results are available. Previous versions did not record all execution stages; unknown request counts and durations remain unknown.</string>
 </resources>

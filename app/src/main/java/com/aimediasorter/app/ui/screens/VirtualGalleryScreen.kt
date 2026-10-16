@@ -1,5 +1,7 @@
 package com.aimediasorter.app.ui.screens
 
+import com.aimediasorter.app.data.diagnostics.Diagnostics
+import com.aimediasorter.app.domain.diagnostics.*
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -43,11 +45,12 @@ import com.aimediasorter.app.ui.theme.*
             .memoryCacheKey((item.destinationUriString ?: item.uriString)+":"+item.sha256Checksum+":thumb320")
             .crossfade(false).build()
     }
+    val diagnostic=remember(request) { Diagnostics.operation(DiagnosticKind.GALLERY) }
     var failed by remember(request) { mutableStateOf(false) }
     var loaded by remember(request) { mutableStateOf(false) }
     Box(modifier.background(AmoledElevatedSurface)) {
         AsyncImage(request,contentDescription=if(loaded) item.fileName else null,contentScale=ContentScale.Crop,
-            onError={failed=true;loaded=false},onSuccess={failed=false;loaded=true},modifier=Modifier.fillMaxSize())
+            onError={failed=true;loaded=false;diagnostic.event(DiagnosticStage.THUMBNAIL_LOAD,DiagnosticStatus.FAILED)},onSuccess={failed=false;loaded=true;diagnostic.event(DiagnosticStage.THUMBNAIL_LOAD,DiagnosticStatus.SUCCEEDED)},modifier=Modifier.fillMaxSize())
         if(failed) Text(stringResource(R.string.virtual_preview_unavailable),Modifier.padding(8.dp),style=MaterialTheme.typography.labelSmall)
     }
 }
@@ -56,7 +59,7 @@ import com.aimediasorter.app.ui.theme.*
 @Composable fun VirtualGalleryScreen(
     media: List<MediaItemEntity>,categories: List<CategoryEntity>,links: List<MediaCategoryLink>,
     initialFolder: String="",onInspect: (Long)->Unit,onCorrect: (Set<Long>,Set<String>,Boolean)->Unit,
-    onReanalyze: (Set<Long>)->Unit,onOrganize: (Set<Long>)->Unit,onAnalyze: ()->Unit,onAdvanced: ()->Unit
+    onReanalyze: (Set<Long>)->Unit,onOrganize: (Set<Long>)->Unit,onAnalyze: ()->Unit,onAdvanced: ()->Unit,onDiagnostics: ()->Unit = {}
 ) {
     var folder by rememberSaveable(initialFolder) { mutableStateOf(initialFolder) }
     var selected by remember { mutableStateOf(setOf<Long>()) }
@@ -85,6 +88,8 @@ import com.aimediasorter.app.ui.theme.*
         "" -> stringResource(R.string.virtual_folders)
         else -> categories.firstOrNull { it.id==folder }?.let { categoryDisplayName(it.id,it.name) }.orEmpty()
     }
+    LaunchedEffect(folder) { Diagnostics.operation(DiagnosticKind.GALLERY).event(DiagnosticStage.GALLERY_OPEN,
+        metrics=mapOf(DiagnosticMetric.ITEM_COUNT to visible.size.toLong())) }
     BackHandler(folder.isNotEmpty() && initialFolder.isEmpty()) { folder="";selected=emptySet() }
     LaunchedEffect(currentIds) { selected=selected.intersect(currentIds) }
     Column(Modifier.fillMaxSize().testTag("virtual-gallery").background(AmoledPureBlack).padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -93,6 +98,8 @@ import com.aimediasorter.app.ui.theme.*
             if(folder.isNotEmpty() && initialFolder.isEmpty()) TextButton(onClick={folder="";selected=emptySet()}) { Text(stringResource(R.string.btn_back)) }
         }
         Text(stringResource(R.string.virtual_only_notice),style=MaterialTheme.typography.bodySmall)
+        if(failed.isNotEmpty()) Text(stringResource(R.string.diagnostics_failure_count,failed.size),color=StatusAmber,modifier=Modifier.testTag("gallery-failure-count"))
+        if(media.isNotEmpty()) OutlinedButton(onClick=onDiagnostics,modifier=Modifier.fillMaxWidth().testTag("gallery-export-analysis")) { Text(stringResource(R.string.diagnostics_export_batch)) }
         if(folder.isEmpty()) {
             val cards=categories.map { it.id }+listOf("__review__","__failed__","__pending__","__all__")
             LazyVerticalGrid(GridCells.Adaptive(150.dp),verticalArrangement=Arrangement.spacedBy(10.dp),

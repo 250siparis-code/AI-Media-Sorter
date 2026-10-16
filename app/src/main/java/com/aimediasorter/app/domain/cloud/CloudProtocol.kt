@@ -1,10 +1,12 @@
 package com.aimediasorter.app.domain.cloud
 
 import com.aimediasorter.app.data.local.CategoryEntity
+import com.aimediasorter.app.domain.diagnostics.*
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import java.util.Base64
 
 /** Legacy values decode old settings only. Production analysis is always Gemini. */
@@ -128,63 +130,117 @@ object CloudProtocol {
             }
         }.toString()
     }
-    fun parseResponse(raw: String, allowed: Set<String>): CloudResponse {
+    fun parseResponse(raw: String, allowed: Set<String>,diagnostic: DiagnosticOperation?=null): CloudResponse {
         var stage=AnalysisCode.RESPONSE_ENVELOPE
+        var validation=DiagnosticValidation.ENVELOPE
+        var violation: DiagnosticViolation?=null
+        var validationMetrics: Map<DiagnosticMetric,Long> = emptyMap()
         try {
             val root=Json.parseToJsonElement(raw).jsonObject
             val candidate=root["candidates"]?.jsonArray?.singleOrNull()?.jsonObject
                 ?: throw CloudFailure(if(root["promptFeedback"]!=null) CloudErrorKind.BLOCKED else CloudErrorKind.RESPONSE,
                     if(root["promptFeedback"]!=null) AnalysisCode.RESPONSE_BLOCKED else AnalysisCode.RESPONSE_ENVELOPE)
+            validation=DiagnosticValidation.FINISH
             val finish=candidate["finishReason"]?.jsonPrimitive?.content
             if(finish in setOf("SAFETY","RECITATION","BLOCKLIST","PROHIBITED_CONTENT")) throw CloudFailure(CloudErrorKind.BLOCKED)
             if(finish=="MAX_TOKENS") throw CloudFailure(CloudErrorKind.RESPONSE,AnalysisCode.RESPONSE_MAX_TOKENS)
             if(finish!="STOP") throw CloudFailure(CloudErrorKind.RESPONSE,AnalysisCode.RESPONSE_FINISH)
+            validation=DiagnosticValidation.ENVELOPE_PARTS
             val text=candidate["content"]!!.jsonObject["parts"]!!.jsonArray
                 .filter { it.jsonObject["thought"]?.jsonPrimitive?.booleanOrNull != true }
                 .mapNotNull { it.jsonObject["text"]?.jsonPrimitive?.content }.joinToString("")
             stage=AnalysisCode.RESPONSE_JSON
+            validation=DiagnosticValidation.JSON_SYNTAX
             val payload=Json.parseToJsonElement(text)
+            diagnostic?.event(DiagnosticStage.JSON_PARSE,DiagnosticStatus.SUCCEEDED)
+            diagnostic?.event(DiagnosticStage.SCHEMA_VALIDATION,DiagnosticStatus.STARTED)
             stage=AnalysisCode.RESPONSE_SCHEMA
+            validation=DiagnosticValidation.PAYLOAD_OBJECT
             val obj=payload.jsonObject
+            validation=DiagnosticValidation.REQUIRED_FIELDS
             require(obj.keys==setOf("categories","subjects","pose","scene","details","reason","review_status"))
-            fun str(v: JsonElement?,max: Int=240,empty: Boolean=false): String {
+            fun str(v: JsonElement?,max: Int=240,empty: Boolean=false,detail: DiagnosticValidation=DiagnosticValidation.FIELD_TYPE_OR_LENGTH): String {
+                validation=detail;violation=DiagnosticViolation.STRING_REQUIRED;validationMetrics=emptyMap()
                 val p=v!!.jsonPrimitive;require(p.isString)
-                val s=p.content;require(s.length in (if(empty) 0 else 1)..max && s.none { it.isISOControl() })
+                val s=p.content
+                validationMetrics=mapOf(DiagnosticMetric.VALIDATION_LENGTH to s.length.toLong(),DiagnosticMetric.VALIDATION_LIMIT to max.toLong())
+                violation=DiagnosticViolation.EMPTY_NOT_ALLOWED;require(empty || s.isNotEmpty())
+                violation=DiagnosticViolation.STRING_TOO_LONG;require(s.length<=max)
+                violation=DiagnosticViolation.CONTROL_CHARACTER;require(s.none { it.isISOControl() })
+                violation=null;validationMetrics=emptyMap()
                 return s
             }
-            val cats=obj["categories"]!!.jsonArray.map { str(it,160) }
+            validation=DiagnosticValidation.CATEGORY_ARRAY
+            val cats=obj["categories"]!!.jsonArray.map { str(it,160,detail=DiagnosticValidation.CATEGORY_STRING) }
             stage=AnalysisCode.RESPONSE_CATEGORIES
-            require(cats.size<=minOf(allowed.size,50) && cats.distinct().size==cats.size && cats.all { it in allowed })
+            validation=DiagnosticValidation.CATEGORY_COUNT
+            require(cats.size<=minOf(allowed.size,50))
+            validation=DiagnosticValidation.CATEGORY_DUPLICATE
+            require(cats.distinct().size==cats.size)
+            validation=DiagnosticValidation.CATEGORY_UNSUPPORTED
+            require(cats.all { it in allowed })
             stage=AnalysisCode.RESPONSE_SCHEMA
+            validation=DiagnosticValidation.SUBJECT_ARRAY
             val subjects=obj["subjects"]!!.jsonArray.map {
+                validation=DiagnosticValidation.SUBJECT_FIELDS
                 val subject=it.jsonObject;require(subject.keys==setOf("description","importance"))
-                val importance=str(subject["importance"])
+                val importance=str(subject["importance"],detail=DiagnosticValidation.SUBJECT_IMPORTANCE)
+                validation=DiagnosticValidation.SUBJECT_IMPORTANCE
                 require(importance in setOf("main","secondary","background"))
-                CloudSubject(str(subject["description"]),importance)
+                CloudSubject(str(subject["description"],detail=DiagnosticValidation.SUBJECT_DESCRIPTION),importance)
             }
+            validation=DiagnosticValidation.SUBJECT_COUNT
             require(subjects.size<=10)
+            validation=DiagnosticValidation.MAIN_SUBJECT_REQUIRED
             require(cats.isEmpty() || subjects.any { it.importance=="main" })
-            val details=obj["details"]!!.jsonArray.map { str(it) };require(details.size<=12)
-            val status=str(obj["review_status"]);require(status in setOf("CLEAR","REQUIRED"))
-            val decision=CloudDecision(cats,subjects,str(obj["pose"],empty=true),str(obj["scene"],empty=true),
-                details,str(obj["reason"],800),if(cats.size!=1) "REQUIRED" else status)
+            validation=DiagnosticValidation.DETAIL_ARRAY
+            val details=obj["details"]!!.jsonArray.map { str(it,detail=DiagnosticValidation.DETAIL_STRING) };validation=DiagnosticValidation.DETAIL_COUNT;require(details.size<=12)
+            val status=str(obj["review_status"],detail=DiagnosticValidation.REVIEW_STATUS);validation=DiagnosticValidation.REVIEW_STATUS;require(status in setOf("CLEAR","REQUIRED"))
+            val decision=CloudDecision(cats,subjects,str(obj["pose"],empty=true,detail=DiagnosticValidation.POSE),str(obj["scene"],empty=true,detail=DiagnosticValidation.SCENE),
+                details,str(obj["reason"],800,detail=DiagnosticValidation.REASON),if(cats.size!=1) "REQUIRED" else status)
+            validation=DiagnosticValidation.USAGE_METADATA
             val usage=root["usageMetadata"]?.jsonObject
             fun count(k: String)=usage?.get(k)?.jsonPrimitive?.intOrNull?.coerceAtLeast(0) ?: 0
             return CloudResponse(decision,count("promptTokenCount"),
                 (count("candidatesTokenCount").toLong()+count("thoughtsTokenCount")).coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
         } catch(cancelled: CancellationException) { throw cancelled }
-        catch(known: CloudFailure) { throw known }
-        catch(_: Exception) { throw CloudFailure(CloudErrorKind.RESPONSE,stage) }
+        catch(known: CloudFailure) {
+            diagnostic?.event(when(stage) {
+                AnalysisCode.RESPONSE_JSON->DiagnosticStage.JSON_PARSE
+                AnalysisCode.RESPONSE_ENVELOPE->if(validation==DiagnosticValidation.FINISH) DiagnosticStage.OUTPUT_FINISH else DiagnosticStage.RESPONSE_VALIDATION
+                else->DiagnosticStage.SCHEMA_VALIDATION
+            },
+                DiagnosticStatus.FAILED,code=known.diagnostic,validation=validation,violation=violation,metrics=validationMetrics)
+            throw known
+        }
+        catch(_: Exception) {
+            diagnostic?.event(when(stage) {
+                AnalysisCode.RESPONSE_JSON->DiagnosticStage.JSON_PARSE
+                AnalysisCode.RESPONSE_ENVELOPE->if(validation==DiagnosticValidation.FINISH) DiagnosticStage.OUTPUT_FINISH else DiagnosticStage.RESPONSE_VALIDATION
+                else->DiagnosticStage.SCHEMA_VALIDATION
+            },
+                DiagnosticStatus.FAILED,code=stage,validation=validation,violation=violation,metrics=validationMetrics)
+            throw CloudFailure(CloudErrorKind.RESPONSE,stage)
+        }
     }
 }
 class GeminiClient(private val transport: CloudTransport, private val wait: suspend (Long)->Unit={ delay(it) }) {
-    suspend fun models(key: String): List<String> {
+    suspend fun models(key: String,diagnostic: DiagnosticOperation?=null): List<String> {
         try {
             val names=mutableListOf<String>();var page="";val seen=mutableSetOf<String>()
             repeat(10) {
                 val path="models?pageSize=100"+if(page.isEmpty()) "" else "&pageToken="+java.net.URLEncoder.encode(page,"UTF-8")
-                val r=transport.request(path,key,null);checkHttp(r)
+                val request=diagnostic?.child(DiagnosticKind.GEMINI_REQUEST)
+                val r=try { if(request!=null) withContext(DiagnosticTraceContext(request)) { transport.request(path,key,null) }
+                    else transport.request(path,key,null) } catch(error: Exception) { request?.failure(error);throw error }
+                request?.event(DiagnosticStage.REQUEST_SENT,DiagnosticStatus.SUCCEEDED)
+                request?.event(DiagnosticStage.RESPONSE_RECEIVED,DiagnosticStatus.SUCCEEDED,http=r.code)
+                if(r.code!=200) request?.event(DiagnosticStage.HTTP_FAILURE,DiagnosticStatus.FAILED,http=r.code)
+                checkHttp(r)
+                request?.event(DiagnosticStage.JSON_PARSE,DiagnosticStatus.STARTED)
                 val obj=Json.parseToJsonElement(r.body).jsonObject
+                request?.event(DiagnosticStage.JSON_PARSE,DiagnosticStatus.SUCCEEDED)
+                request?.event(DiagnosticStage.SCHEMA_VALIDATION,DiagnosticStatus.STARTED)
                 val models=obj["models"]?.jsonArray ?: throw CloudFailure(CloudErrorKind.RESPONSE)
                 names+=models.mapNotNull { e ->
                     val m=e.jsonObject;val n=m["name"]?.jsonPrimitive?.content ?: return@mapNotNull null
@@ -194,6 +250,8 @@ class GeminiClient(private val transport: CloudTransport, private val wait: susp
                     n.takeIf { validModel(it) && "generateContent" in methods && !excluded && (modalities==null || "IMAGE" in modalities) }
                 }
                 page=obj["nextPageToken"]?.jsonPrimitive?.content.orEmpty()
+                request?.event(DiagnosticStage.SCHEMA_VALIDATION,DiagnosticStatus.SUCCEEDED)
+                request?.event(DiagnosticStage.COMPLETE,DiagnosticStatus.SUCCEEDED)
                 if(page.isEmpty()) return names.distinct().sorted()
                 require(seen.add(page))
             }
@@ -207,16 +265,37 @@ class GeminiClient(private val transport: CloudTransport, private val wait: susp
         if(!options.ready()) throw CloudFailure(CloudErrorKind.CONFIG)
         val body=try { CloudProtocol.request(categories,images,options) }
             catch(_: IllegalArgumentException) { throw CloudFailure(CloudErrorKind.REQUEST,AnalysisCode.REQUEST_BUILD) }
+        trace.diagnostic?.event(DiagnosticStage.REQUEST_BUILD,DiagnosticStatus.SUCCEEDED,metrics=mapOf(
+            DiagnosticMetric.FRAME_COUNT to images.size.toLong(),DiagnosticMetric.CATEGORY_COUNT to categories.size.toLong(),
+            DiagnosticMetric.OUTPUT_TOKEN_LIMIT to options.maxOutputTokens.toLong(),
+            DiagnosticMetric.BATCH_REQUEST_LIMIT to options.maxRequests.toLong(),DiagnosticMetric.DAILY_REQUEST_LIMIT to options.maxDailyRequests.toLong(),
+            DiagnosticMetric.RETRY_LIMIT to options.retries.toLong(),DiagnosticMetric.MIN_INTERVAL_SECONDS to options.minimumIntervalSeconds.toLong()))
         for(attempt in 0..options.retries) {
             reserveAttempt()
-            val r=transport.request(options.model+":generateContent",key,body,trace::bodySent)
+            val request=trace.diagnostic?.child(DiagnosticKind.GEMINI_REQUEST)
+            val onSent={ trace.bodySent();request?.event(DiagnosticStage.REQUEST_SENT,DiagnosticStatus.SUCCEEDED);Unit }
+            val r=try { if(request!=null) withContext(DiagnosticTraceContext(request)) { transport.request(options.model+":generateContent",key,body,onSent) }
+                else transport.request(options.model+":generateContent",key,body,onSent) }
+                catch(error: Exception) { request?.failure(error);throw error }
             trace.httpStatus=r.code
+            request?.event(DiagnosticStage.RESPONSE_RECEIVED,DiagnosticStatus.SUCCEEDED,http=r.code)
             if(r.code==200) {
-                val parsed=CloudProtocol.parseResponse(r.body,categories.map { it.id }.toSet())
+                request?.event(DiagnosticStage.JSON_PARSE,DiagnosticStatus.STARTED)
+                val parsed=try { CloudProtocol.parseResponse(r.body,categories.map { it.id }.toSet(),request) }
+                    catch(error: CloudFailure) { request?.failure(error);throw error }
+                request?.event(DiagnosticStage.SCHEMA_VALIDATION,DiagnosticStatus.SUCCEEDED)
+                request?.event(DiagnosticStage.COMPLETE,DiagnosticStatus.SUCCEEDED,metrics=mapOf(
+                    DiagnosticMetric.INPUT_TOKENS to parsed.inputTokens.toLong(),DiagnosticMetric.OUTPUT_TOKENS to parsed.outputTokens.toLong()))
                 return parsed.copy(decision=parsed.decision.redact(key))
             }
+            request?.event(DiagnosticStage.HTTP_FAILURE,DiagnosticStatus.FAILED,http=r.code)
             if(attempt<options.retries && r.code in setOf(429,500,502,503,504))
-                wait(maxOf(1000L*(1L shl attempt),r.retryAfterSeconds.coerceIn(0,30)*1000).coerceAtMost(30_000))
+                {
+                    val waitMs=maxOf(1000L*(1L shl attempt),r.retryAfterSeconds.coerceIn(0,30)*1000).coerceAtMost(30_000)
+                    trace.diagnostic?.event(DiagnosticStage.RETRY_WAIT,DiagnosticStatus.PENDING,http=r.code,
+                        metrics=mapOf(DiagnosticMetric.RETRY_INDEX to attempt.toLong(),DiagnosticMetric.WAIT_MS to waitMs))
+                    wait(waitMs)
+                }
             else checkHttp(r)
         }
         throw CloudFailure(CloudErrorKind.RESPONSE)

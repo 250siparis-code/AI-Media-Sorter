@@ -8,11 +8,14 @@ import com.aimediasorter.app.data.repository.MediaRepository
 
 class AIMediaSorterApp : Application(), ImageLoaderFactory {
 
+    lateinit var diagnostics: com.aimediasorter.app.data.diagnostics.DiagnosticLog
+        private set
     lateinit var repository: MediaRepository
         private set
 
     override fun onCreate() {
         super.onCreate()
+        diagnostics = com.aimediasorter.app.data.diagnostics.Diagnostics.initialize(this)
         repository = MediaRepository(this)
     }
 

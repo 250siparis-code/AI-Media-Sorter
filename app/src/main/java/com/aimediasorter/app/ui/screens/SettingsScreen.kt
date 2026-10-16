@@ -47,7 +47,8 @@ fun SettingsScreen(
     canSaveExport: Boolean,
     onSaveExport: (Uri) -> Unit,
     onExportCsv: () -> Unit,
-    onExportJson: () -> Unit
+    onExportJson: () -> Unit,
+    onDiagnostics: () -> Unit = {}
 ) {
     val saveExport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         if (uri != null) onSaveExport(uri)
@@ -67,6 +68,9 @@ fun SettingsScreen(
             style = MaterialTheme.typography.headlineMedium
         )
 
+        OutlinedButton(onClick=onDiagnostics,modifier=Modifier.fillMaxWidth().testTag("open-diagnostics")) {
+            Text(stringResource(R.string.diagnostics_title))
+        }
         // Section 1: Language & AMOLED
         SettingsSectionCard(title = stringResource(R.string.settings_section_appearance)) {
             Text(text = stringResource(R.string.settings_language), style = MaterialTheme.typography.labelMedium)
