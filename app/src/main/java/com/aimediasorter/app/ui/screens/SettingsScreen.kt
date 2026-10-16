@@ -55,6 +55,7 @@ fun SettingsScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(AmoledPureBlack)
+            .imePadding()
             .verticalScroll(rememberScrollState())
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)

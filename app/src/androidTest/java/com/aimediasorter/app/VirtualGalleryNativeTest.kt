@@ -14,7 +14,8 @@ import com.aimediasorter.app.data.repository.MediaRepository
 import com.aimediasorter.app.domain.cloud.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
-import kotlinx.serialization.json.*
+import org.json.JSONObject
+import org.json.JSONArray
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -71,12 +72,10 @@ class VirtualGalleryNativeTest {
         companion object {
             fun response(): String {
                 val decision="""{"categories":["cat_people","cat_food"],"subjects":[{"description":"A person","importance":"main"},{"description":"A meal","importance":"main"}],"pose":"standing","scene":"indoor","details":[],"reason":"Two independently important subjects.","review_status":"CLEAR"}"""
-                return buildJsonObject {
-                    put("candidates",buildJsonArray { add(buildJsonObject {
-                        put("finishReason","STOP")
-                        putJsonObject("content") { put("parts",buildJsonArray { add(buildJsonObject { put("text",decision) }) }) }
-                    }) })
-                }.toString()
+                return JSONObject().put("candidates",JSONArray().put(
+                    JSONObject().put("finishReason","STOP").put("content",
+                        JSONObject().put("parts",JSONArray().put(JSONObject().put("text",decision))))
+                )).toString()
             }
         }
     }
