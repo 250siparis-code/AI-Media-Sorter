@@ -28,7 +28,11 @@ data class LiveAnalysisProgress(
     val totalFiles: Int = 0, val processedFiles: Int = 0,
     val currentFileName: String = "", val currentDetectedCategory: String = "",
     val currentPreviewUri: String = "", val skippedUnchangedCount: Int = 0,
-    val errorMessage: String? = null, val isDiscovering: Boolean = false
+    val errorMessage: String? = null, val isDiscovering: Boolean = false,
+    val successfulCount: Int = 0, val needsReviewCount: Int = 0, val failedCount: Int = 0,
+    val pendingCount: Int = 0, val apiRequestsSent: Int = 0,
+    val currentDiagnosticCode: String = "", val currentIsVideo: Boolean = false,
+    val currentRequestsSent: Int = 0,val currentReservations: Int = 0,val currentHttpStatus: Int = 0
 )
 data class LiveTransferProgress(
     val isRunning: Boolean = false, val totalToTransfer: Int = 0,
@@ -200,7 +204,7 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
             val configuration = signature(settings, categories)
             var session = AnalysisSessionEntity(
                 UUID.randomUUID().toString(), System.currentTimeMillis(), null,
-                settings.sourceUri, settings.destinationUri, 0, 0, 0, 0, 0, "IN_PROGRESS", configuration
+                settings.sourceUri, settings.destinationUri, 0, 0, 0, 0, 0, "IN_PROGRESS", configuration,apiRequestsSent=0
             )
             db.analysisSessionDao().upsertSession(session)
             _analysisProgress.value = LiveAnalysisProgress(isRunning = true, isDiscovering = true)
@@ -209,6 +213,7 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
             var skipped = 0
             var uncertain = 0
             var failed = 0
+            var pending = 0
             try {
                 storageScanner.scanCandidates(settings.sourceUri, "",
                     settings.includeSubfolders, settings.mediaTypeFilter, settings.enabledExtensions) {
@@ -221,7 +226,7 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                         delay(250)
                     }
                     _analysisProgress.update { it.copy(isPaused = false, isDiscovering = false, currentFileName = candidate.fileName,
-                        currentPreviewUri = candidate.uri.toString()) }
+                        currentPreviewUri = candidate.uri.toString(),currentDiagnosticCode="",currentIsVideo=candidate.isVideo) }
                     val existing = db.mediaItemDao().getByUri(candidate.uri.toString())
                     if(selectedIds.isNotEmpty() && existing?.id !in selectedIds) {
                         if(existing!=null) db.mediaItemDao().updateMediaItem(existing.copy(scanSessionId=session.sessionId))
@@ -231,10 +236,17 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                     try {
                         sourceChecksum = checksum(candidate.uri.toString(), candidate.filePath)
                     } catch (cancelled: CancellationException) { throw cancelled }
-                    catch (_: Exception) { /* Original-byte failure is recorded once as an analysis failure below. */ }
+                    catch (_: Exception) { /* Transfer remains blocked; analysis may read provider-redacted selected pixels. */ }
+                    // Analysis identity may use provider-redacted selected bytes. It is never stored
+                    // as the original SHA-256 or accepted by the transfer planner.
+                    val analysisIdentity = sourceChecksum ?: try {
+                        SelectedMediaAccess(context).fingerprint(candidate.uri)
+                    } catch(cancelled: CancellationException) { throw cancelled }
+                    catch(_: Exception) { null }
                     val fingerprint = digest(candidate.uri.toString() + ";" + sourceChecksum + ";" + configuration)
                     if (!forceReanalysis && sourceChecksum != null && existing != null &&
                         existing.sourceRootUri == settings.sourceUri && existing.quickFingerprint == fingerprint &&
+                        existing.analysisStatus !in setOf("FAILED","PENDING") &&
                         CloudApproval.shouldReuse(settings.cloudOptions.mode,existing.primarySubjectNote,
                             existing.analyzedAtMs,existing.isManuallyCorrected)) {
                         val currentModified = timestampManager.resolveFilesystemLastModified(candidate.uri,
@@ -248,31 +260,35 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                                 else existing.timestampVerified,
                             timestampStatusNote = if (timestampChanged && existing.destinationUriString != null)
                                 "Source filesystem mtime changed; the prior transfer timestamp result refers to the earlier snapshot."
-                                else existing.timestampStatusNote))
-                        if (existing.needsManualReview) uncertain++
+                                else existing.timestampStatusNote,
+                            diagnosticCode=AnalysisCode.CACHE_HIT.name,apiRequestsSent=0,requestReservations=0,responseHttpStatus=0))
                         skipped++
                     } else {
                         val metadata = timestampManager.inspectMediaMetadata(candidate.uri, candidate.filePath,
                             candidate.isVideo, candidate.lastModifiedMs)
                         var metrics = try {
-                            cloud.analyze(settings, cloudBatchId, configuration+";scope="+scope(selectedIds,forceReanalysis), sourceChecksum, enabled,
+                            cloud.analyze(settings, cloudBatchId, configuration+";scope="+scope(selectedIds,forceReanalysis), analysisIdentity, enabled,
                                 candidate.uri, candidate.filePath, candidate.isVideo, metadata.orientationDegrees, metadata.isMirrored,
                                 force=forceReanalysis) {
                                 val live = settingsRepository.settingsFlow.first()
                                 if (live.sourceUri != settings.sourceUri || live.cloudOptions != settings.cloudOptions ||
                                     signature(live, db.categoryDao().getAllCategories()) != configuration)
                                     throw CloudFailure(CloudErrorKind.CONSENT)
-                                if (sourceChecksum == null || checksum(candidate.uri.toString(), candidate.filePath) != sourceChecksum)
-                                    throw CloudFailure(CloudErrorKind.CONSENT)
+                                val unchanged=if(sourceChecksum!=null)
+                                    checksum(candidate.uri.toString(),candidate.filePath)==sourceChecksum
+                                    else analysisIdentity!=null && SelectedMediaAccess(context).fingerprint(candidate.uri)==analysisIdentity
+                                if(!unchanged) throw CloudFailure(CloudErrorKind.CONSENT,AnalysisCode.LOCAL_SOURCE_CHANGED)
                             }
                         } catch (cancelled: CancellationException) { throw cancelled }
                         catch (error: Exception) {
                             ClassificationScoreMetrics("__failed__", "Analysis Failed", 0f, 0f, 0f,
-                                needsManualReview = true, primarySubjectNote = "Decoding or analysis failed.",
-                                inferenceEngine="GEMINI",analysisStatus="FAILED",analysisModel=settings.cloudOptions.model)
+                                needsManualReview = true, primarySubjectNote = AnalysisCode.INTERNAL.message,
+                                inferenceEngine="GEMINI",analysisStatus="FAILED",analysisModel=settings.cloudOptions.model,
+                                diagnosticCode=AnalysisCode.INTERNAL.name,apiRequestsSent=0,requestReservations=0)
                         }
                         if (sourceChecksum == null) {
                             metrics = metrics.copy(needsManualReview = true,
+                                analysisStatus=if(metrics.analysisStatus in setOf("PROPOSED","NEEDS_REVIEW")) "NEEDS_REVIEW" else metrics.analysisStatus,
                                 primarySubjectNote = "Original-byte access unavailable; transfer is blocked. " + metrics.primarySubjectNote)
                         }
                         if (sourceChecksum != null) {
@@ -282,7 +298,7 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                                 sourceChecksum = null
                                 metrics = metrics.copy(needsManualReview = true,
                                     primarySubjectNote = "Source changed during analysis; re-analyze before transfer.",
-                                    proposedCategoryIds=emptyList(),analysisStatus="FAILED",analysisJson="{}")
+                                    proposedCategoryIds=emptyList(),analysisStatus="FAILED",analysisJson="{}",diagnosticCode=AnalysisCode.LOCAL_SOURCE_CHANGED.name)
                             }
                         }
                         val preservedLinks = existing?.let { db.virtualGalleryDao().links(it.id).filter { link -> link.origin=="EFFECTIVE" }.map { link -> link.categoryId } }.orEmpty()
@@ -292,8 +308,8 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                         }
                         val category = manual ?: enabled.firstOrNull { it.id == metrics.categoryId }
                         val preserveManual = preservedDecision?.isManuallyCorrected==true && preservedLinks.isNotEmpty() && preservedLinks.all { id -> enabled.any { it.id==id } }
-                        val needsReview = if (preserveManual) sourceChecksum==null else metrics.needsManualReview
-                        if (needsReview) uncertain++
+                        val validAnalysis=metrics.analysisStatus in setOf("PROPOSED","NEEDS_REVIEW")
+                        val needsReview = if (preserveManual && validAnalysis) sourceChecksum==null else metrics.needsManualReview
                         val entity = MediaItemEntity(
                             id = existing?.id ?: 0, uriString = candidate.uri.toString(), filePath = candidate.filePath,
                             fileName = candidate.fileName, extension = candidate.extension, isVideo = candidate.isVideo,
@@ -313,9 +329,11 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                             destinationUriString = preservedDecision?.destinationUriString, sha256Checksum = sourceChecksum,
                             timestampVerified = preservedDecision?.timestampVerified, timestampStatusNote = preservedDecision?.timestampStatusNote,
                             sourceRootUri = settings.sourceUri, scanSessionId = session.sessionId, analysisSignature = configuration, inferenceEngine = metrics.inferenceEngine,
-                            analysisStatus=if(preserveManual) "APPROVED" else metrics.analysisStatus,
+                            analysisStatus=if(preserveManual && validAnalysis) "APPROVED" else metrics.analysisStatus,
                             analysisModel=metrics.analysisModel,analysisJson=metrics.analysisJson,
-                            decisionVersion=(existing?.decisionVersion ?: 0)+1
+                            decisionVersion=(existing?.decisionVersion ?: 0)+1,
+                            diagnosticCode=metrics.diagnosticCode,apiRequestsSent=metrics.apiRequestsSent,
+                            requestReservations=metrics.requestReservations,responseHttpStatus=metrics.responseHttpStatus
                         )
                         db.withTransaction {
                             val id=db.mediaItemDao().upsertMediaItem(entity)
@@ -328,13 +346,22 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                     }
                     processed++
                     val currentRow=db.mediaItemDao().getByUri(candidate.uri.toString())
-                    if(currentRow?.analysisStatus=="FAILED") failed++ else if(currentRow?.analysisStatus!="PENDING") classified++
+                    when {
+                        currentRow?.analysisStatus=="FAILED"->failed++
+                        currentRow?.analysisStatus=="PENDING"->pending++
+                        currentRow!=null->{classified++;if(currentRow.needsManualReview) uncertain++}
+                    }
                     session = session.copy(totalScanned = _analysisProgress.value.totalFiles,
-                        totalClassified = classified, uncertainCount = uncertain, failedCount = failed)
+                        totalClassified = classified, uncertainCount = uncertain, failedCount = failed,
+                        successfulCount=classified-uncertain,pendingCount=pending,apiRequestsSent=cloud.state.sentInBatch(cloudBatchId))
                     db.analysisSessionDao().upsertSession(session)
                     val currentCategory = db.mediaItemDao().getByUri(candidate.uri.toString())?.effectiveCategoryName.orEmpty()
                     _analysisProgress.update { it.copy(processedFiles = processed, skippedUnchangedCount = skipped,
-                        currentDetectedCategory = currentCategory) }
+                        currentDetectedCategory = currentCategory,currentDiagnosticCode=currentRow?.diagnosticCode.orEmpty(),
+                        currentRequestsSent=currentRow?.apiRequestsSent ?: 0,currentReservations=currentRow?.requestReservations ?: 0,
+                        currentHttpStatus=currentRow?.responseHttpStatus ?: 0,
+                        successfulCount=session.successfulCount,needsReviewCount=uncertain,failedCount=failed,
+                        pendingCount=pending,apiRequestsSent=session.apiRequestsSent) }
                 }
                 _analysisProgress.update { it.copy(totalFiles=processed) }
                 session = session.copy(completedAtMs = System.currentTimeMillis(), totalScanned = processed, status = "COMPLETED")
@@ -345,7 +372,11 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                 throw cancelled
             } catch (error: Exception) {
                 db.analysisSessionDao().upsertSession(session.copy(status = "FAILED"))
-                _analysisProgress.update { it.copy(errorMessage = error.message) }
+                _analysisProgress.update { it.copy(errorMessage = when(error) {
+                    is CloudFailure->error.diagnostic.message
+                    is SecurityException->AnalysisCode.LOCAL_SOURCE_ACCESS.message
+                    else->AnalysisCode.INTERNAL.message
+                }) }
                 throw error
             } finally {
                 _analysisProgress.update { it.copy(isRunning = false, isPaused = false, isDiscovering = false) }

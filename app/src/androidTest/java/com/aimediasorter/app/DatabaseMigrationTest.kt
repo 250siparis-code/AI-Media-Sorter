@@ -56,12 +56,15 @@ class DatabaseMigrationTest {
                 db.version = 1
             }
             val migrated = Room.databaseBuilder(context, AppDatabase::class.java, name)
-                .addMigrations(AppDatabase.MIGRATION_1_2,AppDatabase.MIGRATION_2_3).build()
+                .addMigrations(AppDatabase.MIGRATION_1_2,AppDatabase.MIGRATION_2_3,AppDatabase.MIGRATION_3_4).build()
             try {
                 val preserved = requireNotNull(migrated.mediaItemDao().getByUri("content://legacy/photo"))
                 assertEquals("legacy.jpg", preserved.fileName)
                 assertEquals("", preserved.sourceRootUri)
                 assertEquals("legacy", preserved.inferenceEngine)
+                assertEquals("UNRECORDED",preserved.diagnosticCode)
+                assertEquals(-1,preserved.apiRequestsSent)
+                assertEquals(-1,preserved.requestReservations)
                 assertTrue(migrated.mediaItemDao().getCurrentMediaItems("any-source").isEmpty())
                 assertTrue(migrated.transferJournalDao().unfinished().isEmpty())
             } finally { migrated.close() }

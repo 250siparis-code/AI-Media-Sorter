@@ -75,7 +75,11 @@ data class MediaItemEntity(
     @ColumnInfo(defaultValue = "'LEGACY'") val analysisStatus: String = "LEGACY",
     @ColumnInfo(defaultValue = "''") val analysisModel: String = "",
     @ColumnInfo(defaultValue = "'{}'") val analysisJson: String = "{}",
-    @ColumnInfo(defaultValue = "0") val decisionVersion: Int = 0
+    @ColumnInfo(defaultValue = "0") val decisionVersion: Int = 0,
+    @ColumnInfo(defaultValue = "'UNRECORDED'") val diagnosticCode: String = "UNRECORDED",
+    @ColumnInfo(defaultValue = "-1") val apiRequestsSent: Int = -1,
+    @ColumnInfo(defaultValue = "-1") val requestReservations: Int = -1,
+    @ColumnInfo(defaultValue = "0") val responseHttpStatus: Int = 0
 )
 
 @Entity(tableName = "transfer_logs")
@@ -113,7 +117,10 @@ data class AnalysisSessionEntity(
     val movedCount: Int,
     val failedCount: Int,
     val status: String,
-    @ColumnInfo(defaultValue = "''") val analysisSignature: String = ""
+    @ColumnInfo(defaultValue = "''") val analysisSignature: String = "",
+    @ColumnInfo(defaultValue = "-1") val successfulCount: Int = 0,
+    @ColumnInfo(defaultValue = "-1") val pendingCount: Int = 0,
+    @ColumnInfo(defaultValue = "-1") val apiRequestsSent: Int = -1
 )
 
 @Entity(tableName = "transfer_journal")

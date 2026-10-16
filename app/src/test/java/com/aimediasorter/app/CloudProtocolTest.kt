@@ -152,4 +152,41 @@ class CloudProtocolTest {
         val plan=OperationPlanner.build(7,setOf("people","food"),TransferMethod.COPY,null)
         assertEquals(2,plan.size);assertTrue(plan.all { it.method==TransferMethod.COPY })
     }
+    @Test fun responseStagesHaveSpecificSafeDiagnosticsWithoutChangingValidation() {
+        val cases=listOf(
+            Triple("not JSON",setOf("food"),AnalysisCode.RESPONSE_ENVELOPE),
+            Triple("{}",setOf("food"),AnalysisCode.RESPONSE_ENVELOPE),
+            Triple(response(finish="MAX_TOKENS"),setOf("food"),AnalysisCode.RESPONSE_MAX_TOKENS),
+            Triple(response(finish="OTHER"),setOf("food"),AnalysisCode.RESPONSE_FINISH),
+            Triple(response("not JSON"),setOf("food"),AnalysisCode.RESPONSE_JSON),
+            Triple(response("[]"),setOf("food"),AnalysisCode.RESPONSE_SCHEMA),
+            Triple(response(decision.replace("CLEAR","MAYBE")),setOf("food"),AnalysisCode.RESPONSE_SCHEMA),
+            Triple(response(decision.replace("food","unknown")),setOf("food"),AnalysisCode.RESPONSE_CATEGORIES),
+            Triple(response(decision.replace("""["food"]""","""["food","food"]""")),setOf("food"),AnalysisCode.RESPONSE_CATEGORIES),
+            Triple(response(finish="SAFETY"),setOf("food"),AnalysisCode.RESPONSE_BLOCKED))
+        for((body,allowed,code) in cases) {
+            try { CloudProtocol.parseResponse(body,allowed);fail("Must reject invalid response") }
+            catch(e: CloudFailure) {
+                assertEquals(code,e.diagnostic)
+                assertFalse(e.message.orEmpty().contains(body))
+            }
+        }
+    }
+    @Test fun requestReservationsAreDistinctFromSentAndHttpResponses()=runBlocking {
+        val trace=CloudRequestTrace()
+        val client=GeminiClient(CloudTransport { _,_,_->CloudHttpResponse(200,response()) })
+        try { client.classify("synthetic",options,categories,image,trace) { throw CloudFailure(CloudErrorKind.BUDGET) };fail() }
+        catch(_: CloudFailure) {}
+        assertEquals(0,trace.requestsSent);assertEquals(0,trace.httpStatus)
+        client.classify("synthetic",options,categories,image,trace) { trace.reserved() }
+        assertEquals(1,trace.requestsSent);assertEquals(1,trace.reservations);assertEquals(200,trace.httpStatus)
+    }
+    @Test fun malformedRequestFailsBeforeReservationOrDispatch()=runBlocking {
+        var calls=0;var reservations=0
+        val client=GeminiClient(CloudTransport { _,_,_->calls++;CloudHttpResponse(200,response()) })
+        try { client.classify("synthetic",options,emptyList(),image) { reservations++ };fail() }
+        catch(e: CloudFailure) { assertEquals(AnalysisCode.REQUEST_BUILD,e.diagnostic) }
+        assertEquals(0,calls);assertEquals(0,reservations)
+    }
+
 }

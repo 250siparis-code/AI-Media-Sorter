@@ -148,6 +148,8 @@ import com.aimediasorter.app.ui.theme.*
                         Column {
                             MediaThumbnail(item,Modifier.fillMaxWidth().aspectRatio(1f))
                             Text(item.fileName,Modifier.padding(4.dp),maxLines=1,overflow=TextOverflow.Ellipsis,style=MaterialTheme.typography.labelSmall)
+                            if(item.analysisStatus in setOf("FAILED","PENDING"))
+                                Text(item.diagnosticCode,Modifier.padding(4.dp),style=MaterialTheme.typography.labelSmall)
                             Text(analysisStatusLabel(item.analysisStatus),Modifier.padding(4.dp),style=MaterialTheme.typography.labelSmall,
                                 color=if(item.needsManualReview) StatusAmber else PrimaryPurpleLight)
                             Text(membership.filterValues { item.id in it }.keys.mapNotNull { id->categories.firstOrNull { it.id==id } }
