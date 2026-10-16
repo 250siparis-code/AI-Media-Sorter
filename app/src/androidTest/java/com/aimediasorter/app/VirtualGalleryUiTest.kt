@@ -1,45 +1,50 @@
 package com.aimediasorter.app
 
 import android.Manifest
-import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.Uri
+import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.*
 import com.aimediasorter.app.data.local.*
 import com.aimediasorter.app.data.preferences.SettingsRepository
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.ExternalResource
+import org.junit.rules.RuleChain
 import org.junit.runner.RunWith
 import java.io.File
 import java.util.UUID
 
-/** Installed UI smoke on a temporary source; no cloud call or semantic-accuracy claim. */
+/** Installed gallery, actual image decode and byte preservation; no cloud accuracy claim. */
 @RunWith(AndroidJUnit4::class)
 class VirtualGalleryUiTest {
-    @Test fun virtualFolderOpensRealThumbnailAndFullScreenPreview()=runBlocking {
-        val instrumentation=InstrumentationRegistry.getInstrumentation()
-        val context=instrumentation.targetContext
-        val device=UiDevice.getInstance(instrumentation)
-        val settings=SettingsRepository(context)
-        val oldSource=settings.settingsFlow.first().sourceUri
-        val root=File(context.cacheDir,"gallery-ui-"+UUID.randomUUID()).apply { mkdirs() }
-        val photo=File(root,"gallery-qa.png")
-        Bitmap.createBitmap(96,64,Bitmap.Config.ARGB_8888).apply {
-            eraseColor(Color.BLUE);photo.outputStream().use { compress(Bitmap.CompressFormat.PNG,100,it) };recycle()
-        }
-        val db=AppDatabase.getInstance(context)
-        val categoryId="qa-ui-"+UUID.randomUUID()
-        val sessionId=UUID.randomUUID().toString()
-        var id=0L;var scenario: ActivityScenario<MainActivity>?=null
-        val original=photo.readBytes()
-        val ui=InstalledUi(device)
-        try {
+    private val instrumentation=InstrumentationRegistry.getInstrumentation()
+    private val context=instrumentation.targetContext
+    private val settings=SettingsRepository(context)
+    private val db=AppDatabase.getInstance(context)
+    private val root=File(context.cacheDir,"gallery-ui-"+UUID.randomUUID())
+    private val photo=File(root,"gallery-qa.png")
+    private val categoryId="qa-ui-"+UUID.randomUUID()
+    private val sessionId=UUID.randomUUID().toString()
+    private var oldSource=""
+    private var id=0L
+    private var original=byteArrayOf()
+    private val activity=InstalledActivityRule()
+    private val compose=AndroidComposeTestRule(activity) { it.activity() }
+    private val fixture=object: ExternalResource() {
+        override fun before()=runBlocking {
+            oldSource=settings.settingsFlow.first().sourceUri
+            check(root.mkdirs())
+            Bitmap.createBitmap(96,64,Bitmap.Config.ARGB_8888).apply {
+                eraseColor(Color.BLUE);photo.outputStream().use { compress(Bitmap.CompressFormat.PNG,100,it) };recycle()
+            }
+            original=photo.readBytes()
             db.categoryDao().upsertCategory(CategoryEntity(categoryId,"QA Visual Category","Temporary UI fixture",0,"label",10,
                 destinationSubfolder="QA"))
             db.analysisSessionDao().upsertSession(AnalysisSessionEntity(sessionId,1,2,root.path,"",1,1,0,0,0,"COMPLETED","qa"))
@@ -54,28 +59,35 @@ class VirtualGalleryUiTest {
             db.virtualGalleryDao().insertLinks(listOf(MediaCategoryLink(id,categoryId,"EFFECTIVE"),MediaCategoryLink(id,categoryId,"PROPOSED")))
             settings.updateSourceUri(root.path)
             instrumentation.uiAutomation.grantRuntimePermission(context.packageName,Manifest.permission.POST_NOTIFICATIONS)
-            scenario=ActivityScenario.launch<MainActivity>(Intent().setClassName(context.packageName,
-                context.packageName.removeSuffix(".debug")+".MainActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
-            device.waitForIdle()
-            ui.click("nav-folders")
-            ui.click("virtual-folder-"+categoryId,"virtual-gallery")
-            ui.control("virtual-media-"+id,"virtual-gallery")
-            val thumbnail=device.wait(Until.findObject(By.desc(photo.name)),10_000)
-            assertNotNull("The original thumbnail must actually finish decoding.",thumbnail)
-            ui.click("virtual-media-"+id,"virtual-gallery")
-            ui.click("view-full-image","media-review-scroll")
-            val viewer=ui.control("full-media-viewer")
-            assertNotNull("The full-screen original preview must finish decoding.",
-                viewer.wait(Until.findObject(By.desc(photo.name)),10_000))
-            assertArrayEquals(original,photo.readBytes())
-            assertTrue(root.listFiles()!!.all { it.name==photo.name })
-        } finally {
-            scenario?.close()
+        }
+        override fun after() { runBlocking {
             settings.updateSourceUri(oldSource)
             if(id!=0L) db.openHelper.writableDatabase.execSQL("DELETE FROM media_items WHERE id=?",arrayOf(id))
             db.categoryDao().deleteCustomCategory(categoryId)
             db.openHelper.writableDatabase.execSQL("DELETE FROM analysis_sessions WHERE sessionId=?",arrayOf(sessionId))
             root.deleteRecursively()
+        } }
+    }
+    // Data is installed before launch; cleanup follows complete Activity/ViewModel destruction.
+    @get:Rule val rules: RuleChain=RuleChain.outerRule(fixture).around(compose)
+
+    @Test fun virtualFolderOpensRealThumbnailAndFullScreenPreview() {
+        compose.onNodeWithTag("nav-folders").performClick()
+        compose.onNodeWithTag("virtual-folder-grid")
+            .performScrollToNode(hasTestTag("virtual-folder-"+categoryId))
+        compose.onNodeWithTag("virtual-folder-"+categoryId).performClick()
+        compose.onNodeWithTag("virtual-media-"+id).assertIsDisplayed()
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithContentDescription(photo.name).fetchSemanticsNodes().isNotEmpty()
         }
+        compose.onNodeWithTag("virtual-media-"+id).performClick()
+        compose.onNodeWithTag("view-full-image").performScrollTo().performClick()
+        compose.onNodeWithTag("full-media-viewer",useUnmergedTree=true).assertExists()
+        val decodedPreview=hasContentDescription(photo.name) and hasAnyAncestor(hasTestTag("full-media-viewer"))
+        compose.waitUntil(10_000) {
+            compose.onAllNodes(decodedPreview,useUnmergedTree=true).fetchSemanticsNodes().isNotEmpty()
+        }
+        assertArrayEquals(original,photo.readBytes())
+        assertTrue(root.listFiles()!!.all { it.name==photo.name })
     }
 }

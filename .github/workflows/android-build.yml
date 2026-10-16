@@ -101,7 +101,8 @@ jobs:
             *-dex-packages.txt
             size-reports/*.json
   android-device-tests:
-    needs: build
+    # These jobs compile their own test APKs and consume no build-job artifacts.
+    # Run independently so emulator verification and distributable APK builds overlap.
     runs-on: ubuntu-latest
     timeout-minutes: 35
     strategy:
