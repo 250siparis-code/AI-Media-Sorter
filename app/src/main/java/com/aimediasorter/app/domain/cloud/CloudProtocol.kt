@@ -133,6 +133,8 @@ object CloudProtocol {
     fun parseResponse(raw: String, allowed: Set<String>,diagnostic: DiagnosticOperation?=null): CloudResponse {
         var stage=AnalysisCode.RESPONSE_ENVELOPE
         var validation=DiagnosticValidation.ENVELOPE
+        var violation: DiagnosticViolation?=null
+        var validationMetrics: Map<DiagnosticMetric,Long> = emptyMap()
         try {
             val root=Json.parseToJsonElement(raw).jsonObject
             val candidate=root["candidates"]?.jsonArray?.singleOrNull()?.jsonObject
@@ -158,9 +160,14 @@ object CloudProtocol {
             validation=DiagnosticValidation.REQUIRED_FIELDS
             require(obj.keys==setOf("categories","subjects","pose","scene","details","reason","review_status"))
             fun str(v: JsonElement?,max: Int=240,empty: Boolean=false,detail: DiagnosticValidation=DiagnosticValidation.FIELD_TYPE_OR_LENGTH): String {
-                validation=detail
+                validation=detail;violation=DiagnosticViolation.STRING_REQUIRED;validationMetrics=emptyMap()
                 val p=v!!.jsonPrimitive;require(p.isString)
-                val s=p.content;require(s.length in (if(empty) 0 else 1)..max && s.none { it.isISOControl() })
+                val s=p.content
+                validationMetrics=mapOf(DiagnosticMetric.VALIDATION_LENGTH to s.length.toLong(),DiagnosticMetric.VALIDATION_LIMIT to max.toLong())
+                violation=DiagnosticViolation.EMPTY_NOT_ALLOWED;require(empty || s.isNotEmpty())
+                violation=DiagnosticViolation.STRING_TOO_LONG;require(s.length<=max)
+                violation=DiagnosticViolation.CONTROL_CHARACTER;require(s.none { it.isISOControl() })
+                violation=null;validationMetrics=emptyMap()
                 return s
             }
             validation=DiagnosticValidation.CATEGORY_ARRAY
@@ -203,7 +210,7 @@ object CloudProtocol {
                 AnalysisCode.RESPONSE_ENVELOPE->if(validation==DiagnosticValidation.FINISH) DiagnosticStage.OUTPUT_FINISH else DiagnosticStage.RESPONSE_VALIDATION
                 else->DiagnosticStage.SCHEMA_VALIDATION
             },
-                DiagnosticStatus.FAILED,code=known.diagnostic,validation=validation)
+                DiagnosticStatus.FAILED,code=known.diagnostic,validation=validation,violation=violation,metrics=validationMetrics)
             throw known
         }
         catch(_: Exception) {
@@ -212,7 +219,7 @@ object CloudProtocol {
                 AnalysisCode.RESPONSE_ENVELOPE->if(validation==DiagnosticValidation.FINISH) DiagnosticStage.OUTPUT_FINISH else DiagnosticStage.RESPONSE_VALIDATION
                 else->DiagnosticStage.SCHEMA_VALIDATION
             },
-                DiagnosticStatus.FAILED,code=stage,validation=validation)
+                DiagnosticStatus.FAILED,code=stage,validation=validation,violation=violation,metrics=validationMetrics)
             throw CloudFailure(CloudErrorKind.RESPONSE,stage)
         }
     }

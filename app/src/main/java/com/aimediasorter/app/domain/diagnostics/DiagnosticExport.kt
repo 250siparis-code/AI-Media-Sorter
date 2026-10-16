@@ -10,7 +10,7 @@ import kotlinx.serialization.encodeToString
 @Serializable data class DiagnosticEnvironment(val appVersion: String,val buildNumber: Int,val androidVersion: String,val apiLevel: Int,val deviceModel: String)
 @Serializable data class DiagnosticFileReport(val anonymousId: String,val ordinal: Long?,val status: DiagnosticStatus,
     val requestStatus: DiagnosticRequestStatus,val requestsSent: Long?,val lastStage: DiagnosticStage,
-    val errorCode: String?,val validation: DiagnosticValidation?,val httpStatus: Int?,val elapsedMs: Long?,val eventIndexes: List<Int>)
+    val errorCode: String?,val validation: DiagnosticValidation?,val httpStatus: Int?,val elapsedMs: Long?,val eventIndexes: List<Int>,val violation: DiagnosticViolation?=null)
 @Serializable data class DiagnosticOperationIndex(val correlationId: String,val parentId: String?,val batchId: String?,val eventIndexes: List<Int>)
 @Serializable data class DiagnosticReport(val schemaVersion: Int=2,val generatedAtMs: Long,val scope: DiagnosticScope,
     val environment: DiagnosticEnvironment,val batchId: String?,val batchSummary: DiagnosticEvent?,val files: List<DiagnosticFileReport>,
@@ -69,7 +69,7 @@ object DiagnosticExport {
                 ?: rows.lastOrNull { it.status==DiagnosticStatus.FAILED && it.stage!=DiagnosticStage.COMPLETE }
             DiagnosticFileReport(id,rows.firstNotNullOfOrNull { it.metrics[DiagnosticMetric.ITEM_INDEX] },final.status,request,sent,
                 failure?.stage ?: final.stage,code,rows.lastOrNull { it.validation!=null }?.validation,
-                rows.lastOrNull { it.httpStatus!=null }?.httpStatus,rows.filter { it.durationKnown }.maxOfOrNull { it.durationMs },relatedIndexes)
+                rows.lastOrNull { it.httpStatus!=null }?.httpStatus,rows.filter { it.durationKnown }.maxOfOrNull { it.durationMs },relatedIndexes,violation=rows.lastOrNull { it.violation!=null }?.violation)
         }
         val report=DiagnosticReport(generatedAtMs=generatedAtMs,scope=scope,
             environment=environment.copy(appVersion=technical(environment.appVersion,80),buildNumber=environment.buildNumber.coerceAtLeast(0),
@@ -90,10 +90,10 @@ object DiagnosticExport {
         appendLine(report.requestDefinition)
         if(report.includesHistoricalStoredResults) appendLine("HISTORICAL STORED RESULTS: these are saved database results, not reconstructed execution traces. Missing request counts, durations and processing stages are UNKNOWN.")
         report.summaries.forEach { appendLine("SUMMARY "+it.batchId+" | "+it.timestampMs+" | "+it.model+" | "+it.status+" | "+it.metrics) }
-        report.files.forEach { appendLine("FILE "+it.anonymousId+" | ordinal: "+it.ordinal+" | "+it.status+" | "+it.requestStatus+" | sent: "+it.requestsSent+" | failure stage: "+it.lastStage+" | code: "+it.errorCode+" | validation: "+it.validation+" | HTTP: "+it.httpStatus+" | elapsed ms: "+it.elapsedMs) }
+        report.files.forEach { appendLine("FILE "+it.anonymousId+" | ordinal: "+it.ordinal+" | "+it.status+" | "+it.requestStatus+" | sent: "+it.requestsSent+" | failure stage: "+it.lastStage+" | code: "+it.errorCode+" | validation: "+it.validation+" | violation: "+it.violation+" | HTTP: "+it.httpStatus+" | elapsed ms: "+it.elapsedMs) }
         appendLine("EVENTS (chronological; correlation, parent and batch group related operations)")
         report.events.forEach { event->
-            appendLine(event.timestampMs.toString()+" | "+event.correlationId+" | parent="+event.parentId+" | batch="+event.batchId+" | "+event.kind+" | "+event.stage+" | "+event.status+" | elapsed ms="+(if(event.durationKnown) event.durationMs else "UNKNOWN")+" | code="+event.analysisCode+" | error="+event.error+" | validation="+event.validation+" | HTTP="+event.httpStatus+" | model="+event.model+" | transfer="+event.transferPhase+" | "+event.metrics)
+            appendLine(event.timestampMs.toString()+" | "+event.correlationId+" | parent="+event.parentId+" | batch="+event.batchId+" | "+event.kind+" | "+event.stage+" | "+event.status+" | elapsed ms="+(if(event.durationKnown) event.durationMs else "UNKNOWN")+" | code="+event.analysisCode+" | error="+event.error+" | validation="+event.validation+" | violation="+event.violation+" | HTTP="+event.httpStatus+" | model="+event.model+" | transfer="+event.transferPhase+" | "+event.metrics)
         }
     }
 }

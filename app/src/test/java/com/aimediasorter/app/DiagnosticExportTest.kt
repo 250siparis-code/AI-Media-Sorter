@@ -97,6 +97,29 @@ class DiagnosticExportTest {
     @Test(expected=IllegalArgumentException::class) fun noLastBatchIsNotInvented() {
         DiagnosticExport.prepare(DiagnosticSnapshot(),DiagnosticScope.LAST_ANALYSIS,DiagnosticFormat.JSON,environment)
     }
+    @Test fun stringValidationReportsExactViolationAndLengthsWithoutProviderText() {
+        val marker="PRIVATE_REASON_CONTENT"
+        val cases=listOf(
+            kotlinx.serialization.json.JsonPrimitive(marker+"x".repeat(1000)) to DiagnosticViolation.STRING_TOO_LONG,
+            kotlinx.serialization.json.JsonPrimitive(marker+"\n") to DiagnosticViolation.CONTROL_CHARACTER,
+            kotlinx.serialization.json.JsonPrimitive(7) to DiagnosticViolation.STRING_REQUIRED)
+        for((value,expected) in cases) {
+            val events=mutableListOf<DiagnosticEvent>()
+            val operation=DiagnosticOperation(DiagnosticSink { events+=it },DiagnosticKind.MEDIA_ANALYSIS)
+            val payload="""{"categories":["cat_food"],"subjects":[{"description":"Main subject","importance":"main"}],"pose":"","scene":"","details":[],"reason":$value,"review_status":"CLEAR"}"""
+            val response="""{"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":${DiagnosticPrivacy.json.encodeToString(payload)}}]}}]}"""
+            try { CloudProtocol.parseResponse(response,setOf("cat_food"),operation);fail("Expected schema failure") }
+            catch(error: CloudFailure) { assertEquals(AnalysisCode.RESPONSE_SCHEMA,error.diagnostic) }
+            val failure=events.last { it.validation==DiagnosticValidation.REASON }
+            assertEquals(expected,failure.violation)
+            if(value.isString) {
+                assertEquals(value.content.length.toLong(),failure.metrics[DiagnosticMetric.VALIDATION_LENGTH])
+                assertEquals(800L,failure.metrics[DiagnosticMetric.VALIDATION_LIMIT])
+            }
+            val prepared=DiagnosticExport.prepare(DiagnosticSnapshot(events.asReversed()),DiagnosticScope.ALL_EVENTS,DiagnosticFormat.JSON,environment)
+            assertFalse(prepared.text.contains(marker));assertTrue(prepared.text.contains(expected.name))
+        }
+    }
     @Test fun nestedRequestEventsStayWithTheirMediaAndUnrelatedGalleryEventsDoNot() {
         val batch=UUID.randomUUID().toString();val file=UUID.randomUUID().toString();val request=UUID.randomUUID().toString()
         val start=event(batch,file,1,DiagnosticStage.START).copy(status=DiagnosticStatus.STARTED)

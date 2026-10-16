@@ -95,6 +95,7 @@ import java.util.Date
                     event.analysisCode?.let { Text(it+": "+diagnosticText(AnalysisCode.safely(it)),style=MaterialTheme.typography.bodySmall) }
                     if(event.error!=DiagnosticError.NONE) Text(event.error.name)
                     event.validation?.let { Text(it.name,style=MaterialTheme.typography.bodySmall) }
+                    event.violation?.let { Text(it.name,style=MaterialTheme.typography.bodySmall) }
                     event.httpStatus?.let { Text("HTTP "+it) }
                     event.model?.let { Text(it,style=MaterialTheme.typography.labelSmall) }
                     event.transferPhase?.let { Text(it.name,style=MaterialTheme.typography.labelSmall) }
