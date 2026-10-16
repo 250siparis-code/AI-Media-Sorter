@@ -34,7 +34,7 @@ class NativePipelineTest {
     private val context get() = instrumentation.targetContext
     private fun diagnosticClassifier(): OnDeviceAiClassifier {
         if(runCatching { com.google.mlkit.common.sdkinternal.MlKitContext.getInstance() }.isFailure)
-            com.google.mlkit.common.sdkinternal.MlKitContext.initialize(context)
+            com.google.mlkit.common.MlKit.initialize(context)
         return OnDeviceAiClassifier(context,VisualFeatureExtractor(context))
     }
     private fun categories() = DefaultCategories.ALL.map {
