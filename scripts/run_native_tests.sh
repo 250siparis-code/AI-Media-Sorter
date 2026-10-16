@@ -9,6 +9,7 @@ for path in pathlib.Path("app/build/outputs/androidTest-results").rglob("TEST-*.
     for case in root.iter("testcase"):
         for failure in list(case.findall("failure"))+list(case.findall("error")):
             print("FAILED:",case.attrib)
+            print("Failure attributes:",failure.attrib)
             print(failure.text)
 PY
 }
