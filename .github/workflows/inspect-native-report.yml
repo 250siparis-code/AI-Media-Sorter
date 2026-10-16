@@ -1,0 +1,30 @@
+name: Inspect failed native report
+on:
+  push:
+    branches: [codex/gemini-gallery-repair]
+    paths: ['.github/workflows/inspect-native-report.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read exact JUnit failures from the completed acceptance run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import pathlib, subprocess, xml.etree.ElementTree as ET
+          for label in ["34","35","35-16kb","34-release","35-16kb-release"]:
+              destination="native-reports/"+label
+              subprocess.run(["gh","run","download","38838196568","--repo","250siparis-code/AI-Media-Sorter","--name","native-test-reports-api-"+label,"--dir",destination],check=True)
+              for path in pathlib.Path(destination).rglob("TEST-*.xml"):
+                  root=ET.parse(path).getroot()
+                  print(label,path.name,root.attrib)
+                  for case in root.iter("testcase"):
+                      for failure in list(case.findall("failure"))+list(case.findall("error")):
+                          print("FAILED",case.attrib)
+                          print(failure.text)
+          PY

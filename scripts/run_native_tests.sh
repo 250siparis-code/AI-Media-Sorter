@@ -1,5 +1,18 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+dump_test_failures() {
+  python3 - <<'PY'
+import pathlib, xml.etree.ElementTree as ET
+for path in pathlib.Path("app/build/outputs/androidTest-results").rglob("TEST-*.xml"):
+    root=ET.parse(path).getroot()
+    print("Executed suite:",root.attrib)
+    for case in root.iter("testcase"):
+        for failure in list(case.findall("failure"))+list(case.findall("error")):
+            print("FAILED:",case.attrib)
+            print(failure.text)
+PY
+}
+trap dump_test_failures ERR
 variant="$1"
 page_size="$2"
 if [ "$variant" = "release" ]; then
