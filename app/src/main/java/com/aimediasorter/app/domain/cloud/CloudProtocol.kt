@@ -259,7 +259,10 @@ class GeminiClient(private val transport: CloudTransport, private val wait: susp
         val body=try { CloudProtocol.request(categories,images,options) }
             catch(_: IllegalArgumentException) { throw CloudFailure(CloudErrorKind.REQUEST,AnalysisCode.REQUEST_BUILD) }
         trace.diagnostic?.event(DiagnosticStage.REQUEST_BUILD,DiagnosticStatus.SUCCEEDED,metrics=mapOf(
-            DiagnosticMetric.FRAME_COUNT to images.size.toLong(),DiagnosticMetric.CATEGORY_COUNT to categories.size.toLong()))
+            DiagnosticMetric.FRAME_COUNT to images.size.toLong(),DiagnosticMetric.CATEGORY_COUNT to categories.size.toLong(),
+            DiagnosticMetric.OUTPUT_TOKEN_LIMIT to options.maxOutputTokens.toLong(),
+            DiagnosticMetric.BATCH_REQUEST_LIMIT to options.maxRequests.toLong(),DiagnosticMetric.DAILY_REQUEST_LIMIT to options.maxDailyRequests.toLong(),
+            DiagnosticMetric.RETRY_LIMIT to options.retries.toLong(),DiagnosticMetric.MIN_INTERVAL_SECONDS to options.minimumIntervalSeconds.toLong()))
         for(attempt in 0..options.retries) {
             reserveAttempt()
             val request=trace.diagnostic?.child(DiagnosticKind.GEMINI_REQUEST)
@@ -274,7 +277,8 @@ class GeminiClient(private val transport: CloudTransport, private val wait: susp
                 val parsed=try { CloudProtocol.parseResponse(r.body,categories.map { it.id }.toSet(),request) }
                     catch(error: CloudFailure) { request?.failure(error);throw error }
                 request?.event(DiagnosticStage.SCHEMA_VALIDATION,DiagnosticStatus.SUCCEEDED)
-                request?.event(DiagnosticStage.COMPLETE,DiagnosticStatus.SUCCEEDED)
+                request?.event(DiagnosticStage.COMPLETE,DiagnosticStatus.SUCCEEDED,metrics=mapOf(
+                    DiagnosticMetric.INPUT_TOKENS to parsed.inputTokens.toLong(),DiagnosticMetric.OUTPUT_TOKENS to parsed.outputTokens.toLong()))
                 return parsed.copy(decision=parsed.decision.redact(key))
             }
             request?.event(DiagnosticStage.HTTP_FAILURE,DiagnosticStatus.FAILED,http=r.code)

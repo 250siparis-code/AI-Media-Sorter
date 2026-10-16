@@ -81,6 +81,7 @@ class DiagnosticExportTest {
             try { client.classify("AQ.synthetic-only",CloudOptions(model="models/gemini-test",retries=0),listOf(category),listOf(CloudImage(byteArrayOf(1))),trace) { trace.reserved() };fail("Expected validation failure") }
             catch(error: CloudFailure) { assertEquals(code,error.diagnostic) }
             assertTrue(events.any { it.stage==DiagnosticStage.REQUEST_SENT })
+            assertTrue(events.any { it.metrics[DiagnosticMetric.OUTPUT_TOKEN_LIMIT]==4096L })
             assertTrue(events.any { it.validation==detail && it.analysisCode==code.name })
             assertTrue(events.all { it.correlationId==operation.id || it.parentId==operation.id })
             assertTrue(events.any { it.kind==DiagnosticKind.GEMINI_REQUEST && it.correlationId!=operation.id })
