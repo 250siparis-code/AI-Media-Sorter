@@ -220,7 +220,7 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                         currentCoroutineContext().ensureActive()
                         delay(250)
                     }
-                    _analysisProgress.update { it.copy(isPaused = false, currentFileName = candidate.fileName,
+                    _analysisProgress.update { it.copy(isPaused = false, isDiscovering = false, currentFileName = candidate.fileName,
                         currentPreviewUri = candidate.uri.toString()) }
                     val existing = db.mediaItemDao().getByUri(candidate.uri.toString())
                     if(selectedIds.isNotEmpty() && existing?.id !in selectedIds) {

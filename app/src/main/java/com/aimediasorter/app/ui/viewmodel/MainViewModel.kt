@@ -94,6 +94,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         consentIds=ids.toSet();consentForce=true;_cloudConsent.value=true
     }
     fun requestOperationPreview(ids: Set<Long>,method: TransferMethod,moveTargets: Map<Long,String>) { launchSafely {
+        require(!analysisProgress.value.isRunning) { "Finish or cancel analysis before physical organization." }
         require(!transferProgress.value.isRunning) { "Wait for the running operation." }
         _operationPreview.value=repo.previewOperations(ids,method,moveTargets)
     } }
