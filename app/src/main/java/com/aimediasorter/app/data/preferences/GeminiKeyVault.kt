@@ -7,6 +7,7 @@ import android.security.keystore.KeyProperties
 import android.util.AtomicFile
 import java.io.File
 import java.security.KeyStore
+import java.util.concurrent.ConcurrentHashMap
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -18,8 +19,14 @@ class GeminiKeyVault(context: Context, namespace: String = "user") {
     private val file=AtomicFile(File(context.noBackupFilesDir,"gemini-key-"+namespace+".v1"))
     private val metadata=context.getSharedPreferences("gemini-key-metadata-"+namespace,Context.MODE_PRIVATE)
     private val alias="com.aimediasorter.gemini."+namespace+".v1"
-    val revision: Int get()=metadata.getInt("revision",0)
-    @Synchronized fun hasKey()=file.baseFile.exists()
+    // AtomicFile has no locking: openRead() may remove a concurrent writer's .new file.
+    // Every vault instance in this app process must share the same canonical-file lock.
+    private val fileLock=locks.computeIfAbsent(file.baseFile.canonicalPath) { Any() }
+    val revision: Int get()=synchronized(fileLock) { metadata.getInt("revision",0) }
+    fun hasKey()=synchronized(fileLock) { file.baseFile.exists() }
+    private companion object {
+        val locks=ConcurrentHashMap<String,Any>()
+    }
     private fun key(): SecretKey {
         val store=KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         (store.getKey(alias,null) as? SecretKey)?.let { return it }
@@ -29,19 +36,19 @@ class GeminiKeyVault(context: Context, namespace: String = "user") {
                 .setRandomizedEncryptionRequired(true).build())
         }.generateKey()
     }
-    @Synchronized fun read(): String {
+    fun read(): String = synchronized(fileLock) {
         val bytes=file.readFully()
         require(bytes.size in 29..8192)
         val n=bytes[0].toInt() and 255;require(n==12)
         val cipher=Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE,key(),GCMParameterSpec(128,bytes.copyOfRange(1,n+1)))
-        return cipher.doFinal(bytes.copyOfRange(n+1,bytes.size)).toString(Charsets.UTF_8)
+        cipher.doFinal(bytes.copyOfRange(n+1,bytes.size)).toString(Charsets.UTF_8)
     }
     class Snapshot(val secret: String, val revision: Int) {
         override fun toString() = "GeminiCredential(redacted)"
     }
-    @Synchronized fun snapshot() = Snapshot(read(),revision)
-    @Synchronized fun save(value: String) {
+    fun snapshot() = synchronized(fileLock) { Snapshot(read(),revision) }
+    fun save(value: String) { synchronized(fileLock) {
         val normalized = ApiKeyInput.requireValid(value)
         if(runCatching { read()==normalized }.getOrDefault(false)) return
         val cipher=Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE,key()) }
@@ -50,10 +57,10 @@ class GeminiKeyVault(context: Context, namespace: String = "user") {
         check(metadata.edit().putInt("revision",revision+1).commit())
         val stream=file.startWrite()
         try { stream.write(data);file.finishWrite(stream) } catch(e: Exception) { file.failWrite(stream);throw e }
-    }
-    @Synchronized fun clear() {
+    } }
+    fun clear() { synchronized(fileLock) {
         check(metadata.edit().putInt("revision",revision+1).commit())
         file.delete()
         KeyStore.getInstance("AndroidKeyStore").apply { load(null);deleteEntry(alias) }
-    }
+    } }
 }

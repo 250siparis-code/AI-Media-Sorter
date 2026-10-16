@@ -17,6 +17,8 @@ import org.junit.runner.RunWith
 import java.io.File
 import java.security.MessageDigest
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 @RunWith(AndroidJUnit4::class)
 class CloudNativeTest {
@@ -39,6 +41,35 @@ class CloudNativeTest {
             vault.save(secret);assertEquals(revision,vault.revision)
             vault.clear();assertFalse(vault.hasKey());assertTrue(vault.revision>revision)
         } finally { vault.clear() }
+    }
+    @Test fun independentVaultInstancesCannotRaceReadWithReplacement() {
+        val namespace="concurrent-"+UUID.randomUUID()
+        val writer=GeminiKeyVault(context,namespace)
+        val reader=GeminiKeyVault(context,namespace)
+        val running=AtomicBoolean(true)
+        val failure=AtomicReference<Throwable?>(null)
+        var thread: Thread?=null
+        try {
+            writer.save("AQ.SyntheticInitialCredentialForConcurrentRead")
+            thread=Thread {
+                while(running.get()) {
+                    try { reader.snapshot() } catch(e: Throwable) { failure.compareAndSet(null,e) }
+                    Thread.yield()
+                }
+            }.apply { start() }
+            repeat(15) { index ->
+                val replacement="AQ.SyntheticReplacementCredential"+index
+                writer.save(replacement)
+                assertEquals(replacement,reader.read())
+                assertEquals(writer.revision,reader.snapshot().revision)
+            }
+            assertTrue("Concurrent vault reads must not remove an active AtomicFile replacement.",failure.get()==null)
+        } finally {
+            running.set(false)
+            thread?.join(5_000)
+            assertTrue("Vault reader must terminate.",thread?.isAlive!=true)
+            writer.clear()
+        }
     }
     @Test fun durableAttemptBudgetsCacheAndRevocationSurviveReopen() {
         val name="cloud-test-"+UUID.randomUUID()+".db"
