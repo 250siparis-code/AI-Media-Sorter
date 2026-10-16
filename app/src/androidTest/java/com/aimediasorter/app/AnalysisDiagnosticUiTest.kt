@@ -53,7 +53,7 @@ class AnalysisDiagnosticUiTest {
         compose.onNodeWithText(text("progress_video_sampling")).assertDoesNotExist()
         compose.onNodeWithText(text("analysis_completed_issues")).assertExists()
     }
-    @Test fun jsonFailureIsShownAsJsonFailureAndVideoInfoOnlyAppearsForSuccessfulVideo() {
+    @Test fun jsonFailureIsShownAsJsonFailureWithoutVideoInformation() {
         render(LiveAnalysisProgress(totalFiles=1,processedFiles=1,currentFileName="public-fixture.jpg",
             failedCount=1,apiRequestsSent=1,currentDiagnosticCode="RESPONSE_JSON",currentRequestsSent=1,
             currentReservations=1,currentHttpStatus=200,currentIsVideo=false))
@@ -61,9 +61,11 @@ class AnalysisDiagnosticUiTest {
         compose.onNodeWithText("HTTP 200").assertExists()
         compose.onNodeWithText(text("analysis_diag_response_json")).assertExists()
         compose.onNodeWithText(text("progress_video_sampling")).assertDoesNotExist()
+    }
+    @Test fun videoInformationAppearsOnlyForSuccessfulVideo() {
         render(LiveAnalysisProgress(totalFiles=1,processedFiles=1,currentFileName="test-video.mp4",
             successfulCount=1,apiRequestsSent=1,currentDiagnosticCode="SUCCESS",currentRequestsSent=1,
             currentReservations=1,currentHttpStatus=200,currentIsVideo=true))
-        compose.onNodeWithText(text("progress_video_sampling")).assertExists()
+        compose.onNodeWithTag("analysis-video-info",useUnmergedTree=true).performScrollTo().assertIsDisplayed()
     }
 }

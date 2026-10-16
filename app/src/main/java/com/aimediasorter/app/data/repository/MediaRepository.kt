@@ -246,7 +246,7 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                     val fingerprint = digest(candidate.uri.toString() + ";" + sourceChecksum + ";" + configuration)
                     if (!forceReanalysis && sourceChecksum != null && existing != null &&
                         existing.sourceRootUri == settings.sourceUri && existing.quickFingerprint == fingerprint &&
-                        existing.analysisStatus in setOf("PROPOSED","APPROVED","NEEDS_REVIEW") &&
+                        existing.analysisStatus !in setOf("FAILED","PENDING") &&
                         CloudApproval.shouldReuse(settings.cloudOptions.mode,existing.primarySubjectNote,
                             existing.analyzedAtMs,existing.isManuallyCorrected)) {
                         val currentModified = timestampManager.resolveFilesystemLastModified(candidate.uri,

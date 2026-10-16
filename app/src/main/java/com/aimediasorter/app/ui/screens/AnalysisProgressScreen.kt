@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -132,6 +133,7 @@ fun AnalysisProgressScreen(
                         progress.currentDiagnosticCode,progress.currentRequestsSent,progress.currentReservations,progress.currentHttpStatus)
                     if(progress.currentIsVideo && progress.currentDiagnosticCode in setOf("SUCCESS","CACHE_HIT")) Text(
                         text = stringResource(R.string.progress_video_sampling),
+                        modifier=Modifier.testTag("analysis-video-info"),
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
