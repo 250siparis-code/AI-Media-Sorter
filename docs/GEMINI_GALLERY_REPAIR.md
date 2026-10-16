@@ -46,7 +46,7 @@ Both USD estimates can remain zero for Free Tier workflows; request limits still
 Cache keys bind original SHA-256, model, category descriptions, preprocessing protocol, output settings and credential epoch. Successful results have seven-day freshness. Explicit reanalysis bypasses cache. Durable same-batch uncertain-request tombstones prevent silent replay after process death. New consent is required to retry an uncertain outcome. A fresh normal scan resumes pending files while reusing prior valid results.
 
 ## Physical safety
-Analysis and virtual correction create no destination directories and perform no copies, moves, overwrites or source deletion.
+Analysis and virtual correction create no destination directories and perform no copies, moves, overwrites or source deletion. Source selection and scanning no longer require a destination; the outside-source destination check applies only to physical organization.
 A separate Copy/Move choice builds a no-write preview. An unchecked-by-default physical confirmation approves exactly the displayed destination steps, source fingerprint and decision version. At most 100 destination operations are accepted per batch.
 For multiple categories, COPY creates separate verified copies and retains the source. MOVE requires the user to choose the one destination receiving the original; additional copies run first. Every preceding copy is rehashed before the final move and again at its source-deletion checkpoint.
 The existing VerifiedTransferEngine, SafeFileMover, OriginalMediaAccess and timestamp implementation remain unchanged. SHA-256 readback, collision handling, original bytes, separate filesystem/embedded timestamps, mtime warnings, cancellation and durable journals remain in force. Source deletion requires a verified final destination and the original engine's durability/timestamp conditions.
@@ -99,6 +99,7 @@ APKs use QA/debug signing for installation testing, not production signing. Andr
 - `app/src/main/java/com/aimediasorter/app/ui/screens/MediaReviewScreen.kt`
 - `app/src/main/java/com/aimediasorter/app/ui/screens/PhysicalOperationsScreen.kt`
 - `app/src/main/java/com/aimediasorter/app/ui/screens/SettingsScreen.kt`
+- `app/src/main/java/com/aimediasorter/app/ui/screens/SourceDestinationScreen.kt`
 - `app/src/main/java/com/aimediasorter/app/ui/screens/VirtualGalleryScreen.kt`
 - `app/src/main/java/com/aimediasorter/app/ui/viewmodel/MainViewModel.kt`
 - `app/src/main/java/com/aimediasorter/app/worker/MediaAnalysisWorker.kt`
