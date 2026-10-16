@@ -67,7 +67,7 @@ data class CloudUiState(val hasKey: Boolean=false,val models: List<String> = emp
                 "MODEL_SAVED"->R.string.cloud_model_saved
                 "MODEL_OK"->R.string.cloud_model_ok
                 else->R.string.cloud_connection_ok
-            })) }
+            }),modifier=Modifier.testTag("gemini-feedback-"+it)) }
             OutlinedButton(enabled=state.hasKey&&!state.busy,onClick=onRefreshModels) { Text(stringResource(R.string.cloud_test_connection)) }
             if(state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             Box {

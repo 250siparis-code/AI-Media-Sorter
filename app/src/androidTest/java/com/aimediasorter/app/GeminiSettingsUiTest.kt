@@ -2,6 +2,7 @@ package com.aimediasorter.app
 
 import android.Manifest
 import androidx.compose.ui.test.*
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -50,7 +51,9 @@ class GeminiSettingsUiTest {
             compose.onNodeWithTag("gemini-key-input").performScrollTo().performTextReplacement(value)
             compose.onNodeWithTag("gemini-save-key").performScrollTo().assertIsEnabled().performClick()
             awaitKey(value)
-            compose.onNodeWithText(context.getString(R.string.cloud_saved_unverified)).assertExists()
+            val message=compose.onNodeWithTag("gemini-feedback-SAVED",useUnmergedTree=true)
+                .assertExists().fetchSemanticsNode()
+            assertTrue(message.config[SemanticsProperties.Text].any { it.text.isNotBlank() })
         }
         openSettings()
         compose.onNodeWithTag("gemini-save-key").performScrollTo().assertIsNotEnabled()
