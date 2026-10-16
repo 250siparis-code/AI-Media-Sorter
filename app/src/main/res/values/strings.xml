@@ -14,13 +14,13 @@
     <string name="nav_settings">Settings</string>
 
     <!-- Screen 1: Welcome / Home -->
-    <string name="welcome_badge">OFFLINE ON-DEVICE PIPELINE</string>
+    <string name="welcome_badge">GEMINI ANALYSIS · VIRTUAL REVIEW</string>
     <string name="welcome_title">AI Media Sorter</string>
-    <string name="welcome_description">Analyze photos and videos locally on-device, review classification results, and either export Termux-compatible shell scripts/manifests or organize files safely without cloud uploads.</string>
-    <string name="feature_ai_title">On-Device Visual Classification</string>
-    <string name="feature_ai_desc">Runs real ML Kit image labeling locally. Uncertain and diagnostic results require review; scores are not measured accuracy.</string>
-    <string name="feature_folders_title">Termux Script &amp; Manifest Export</string>
-    <string name="feature_folders_desc">Generates classification_report.csv, file_operations.json, move_files.sh, and copy_files.sh with dry-run defaults, SHA-256 checks, and POSIX escaping.</string>
+    <string name="welcome_description">Analyze selected photos and sampled video frames with Gemini after explicit upload consent. Browse and correct results in virtual galleries before approving any physical Copy or Move.</string>
+    <string name="feature_ai_title">Gemini Visual Analysis</string>
+    <string name="feature_ai_desc">Uses your Gemini API key and selected model. No offline fallback or invented confidence. API errors remain visible and retryable.</string>
+    <string name="feature_folders_title">Virtual Galleries and Review</string>
+    <string name="feature_folders_desc">Browse real thumbnails in multiple virtual categories, review important subjects, and correct assignments without changing original files.</string>
     <string name="feature_preserve_title">Timestamp &amp; Byte-Exact Preservation</string>
     <string name="feature_preserve_desc">Copies unchanged media bytes and verifies SHA-256 readback. When modification time cannot be verified, the default policy keeps originals.</string>
     <string name="welcome_mode_label">Active Workflow Mode</string>
@@ -53,16 +53,16 @@
 
     <!-- Screen 3: Category Management -->
     <string name="categories_title">Category Management</string>
-    <string name="categories_subtitle">Enable categories, customize visual descriptions, adjust priority, or assign custom folders.</string>
+    <string name="categories_subtitle">Enable categories, customize descriptions and virtual gallery order, or configure folders for separately approved physical operations.</string>
     <string name="btn_add_category">Add Custom Category</string>
-    <string name="category_priority_fmt">Priority: %1$d</string>
+    <string name="category_priority_fmt">List order: %1$d</string>
     <string name="category_subfolder_fmt">Target Subfolder: /%1$s</string>
     <string name="dialog_add_category_title">New Media Category</string>
     <string name="dialog_edit_category_title">Edit Category</string>
     <string name="field_category_name">Category Name</string>
     <string name="field_category_desc">Visual Content Keywords / Description</string>
     <string name="field_category_folder">Destination Subfolder Name</string>
-    <string name="field_category_priority">Subject Priority (1 = Low, 10 = High)</string>
+    <string name="field_category_priority">List order (1–10); does not override Gemini analysis</string>
     <string name="btn_save">Save</string>
     <string name="btn_cancel">Cancel</string>
     <string name="btn_delete">Delete</string>

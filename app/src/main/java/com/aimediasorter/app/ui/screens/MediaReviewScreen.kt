@@ -59,7 +59,7 @@ import java.util.Date
         Text(stringResource(R.string.virtual_analyzed)+": "+DateFormat.getDateTimeInstance().format(Date(item.analyzedAtMs)))
         Text(stringResource(R.string.cloud_score_unavailable),style=MaterialTheme.typography.bodySmall)
         Text(stringResource(R.string.virtual_correct),style=MaterialTheme.typography.titleMedium)
-        categories.filter { it.isEnabled }.forEach { cat ->
+        categories.filter { it.isEnabled || it.id in chosen }.forEach { cat ->
             Row(verticalAlignment=Alignment.CenterVertically) {
                 Checkbox(cat.id in chosen,{chosen=if(it) chosen+cat.id else chosen-cat.id})
                 Text(categoryDisplayName(cat.id,cat.name))
