@@ -17,7 +17,7 @@ import java.math.BigDecimal
 
 data class CloudUiState(val hasKey: Boolean=false,val models: List<String> = emptyList(),
     val usage: String="0 / 0 / 0",val busy: Boolean=false,val error: String?=null,
-    val message: String?=null,val savedRevision: Int=0,val failure: CloudErrorKind?=null)
+    val message: String?=null,val savedRevision: Int=0,val modelVerified: Boolean=false,val failure: CloudErrorKind?=null)
 
 @Composable fun CloudSettingsCard(o: CloudOptions,state: CloudUiState,onOptions: (CloudOptions)->Unit,
     onSaveKey: (String)->Unit,onClearKey: ()->Unit,onRefreshModels: ()->Unit,onRefreshState: ()->Unit,
@@ -54,6 +54,15 @@ data class CloudUiState(val hasKey: Boolean=false,val models: List<String> = emp
                 OutlinedButton(enabled=state.hasKey,onClick={key="";onClearKey()}) { Text(stringResource(R.string.cloud_clear_key)) }
             }
             Text(stringResource(if(state.hasKey) R.string.cloud_key_saved else R.string.cloud_key_missing))
+            state.failure?.let { Text(cloudFailureText(it),color=MaterialTheme.colorScheme.error) }
+            if(state.error!=null) Text(stringResource(if(state.error=="DELETE") R.string.cloud_delete_failed else R.string.cloud_save_failed),color=MaterialTheme.colorScheme.error)
+            state.message?.let { Text(stringResource(when(it) {
+                "SAVED"->R.string.cloud_saved_unverified
+                "DELETED"->R.string.cloud_deleted
+                "MODEL_SAVED"->R.string.cloud_model_saved
+                "MODEL_OK"->R.string.cloud_model_ok
+                else->R.string.cloud_connection_ok
+            })) }
             OutlinedButton(enabled=state.hasKey&&!state.busy,onClick=onRefreshModels) { Text(stringResource(R.string.cloud_test_connection)) }
             if(state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             Box {
@@ -83,30 +92,21 @@ data class CloudUiState(val hasKey: Boolean=false,val models: List<String> = emp
                 } catch(_: Exception) { invalid=true }
             }) { Text(stringResource(R.string.cloud_save_limits)) }
             if(invalid) Text(stringResource(R.string.cloud_invalid_limits),color=MaterialTheme.colorScheme.error)
-            state.failure?.let { Text(cloudFailureText(it),color=MaterialTheme.colorScheme.error) }
-            if(state.error!=null) Text(stringResource(if(state.error=="DELETE") R.string.cloud_delete_failed else R.string.cloud_save_failed),color=MaterialTheme.colorScheme.error)
-            state.message?.let { Text(stringResource(when(it) {
-                "SAVED"->R.string.cloud_saved_unverified
-                "DELETED"->R.string.cloud_deleted
-                "MODEL_SAVED"->R.string.cloud_model_saved
-                "MODEL_OK"->R.string.cloud_model_ok
-                else->R.string.cloud_connection_ok
-            })) }
             Text(stringResource(R.string.cloud_usage,state.usage))
             TextButton(onClick=onRefreshState) { Text(stringResource(R.string.cloud_refresh_usage)) }
         }
     }
 }
-@Composable fun CloudConsentDialog(options: CloudOptions,hasKey: Boolean,onConfirm: ()->Unit,onDismiss: ()->Unit) {
+@Composable fun CloudConsentDialog(options: CloudOptions,hasKey: Boolean,modelVerified: Boolean,onConfirm: ()->Unit,onDismiss: ()->Unit) {
     var accepted by remember { mutableStateOf(false) }
     AlertDialog(onDismissRequest=onDismiss,title={Text(stringResource(R.string.cloud_consent_title))},
         text={Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.cloud_consent_body,options.maxRequests,options.model))
             Text(stringResource(R.string.cloud_budget_note))
             Row { Checkbox(accepted,{accepted=it});Text(stringResource(R.string.cloud_consent_checkbox)) }
-            if(!hasKey||!options.ready()) Text(stringResource(R.string.cloud_setup_required),color=MaterialTheme.colorScheme.error)
+            if(!hasKey||!options.ready()||!modelVerified) Text(stringResource(R.string.cloud_setup_required),color=MaterialTheme.colorScheme.error)
         }},
-        confirmButton={TextButton(enabled=accepted&&hasKey&&options.ready(),onClick=onConfirm) { Text(stringResource(R.string.cloud_consent_send)) }},
+        confirmButton={TextButton(enabled=accepted&&hasKey&&options.ready()&&modelVerified,onClick=onConfirm) { Text(stringResource(R.string.cloud_consent_send)) }},
         dismissButton={TextButton(onClick=onDismiss) { Text(stringResource(R.string.cloud_consent_cancel)) }})
 }
 

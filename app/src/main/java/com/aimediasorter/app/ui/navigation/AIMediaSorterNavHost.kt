@@ -10,6 +10,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavType
@@ -41,9 +43,17 @@ fun AIMediaSorterNavHost(viewModel: MainViewModel) {
     val loopError by viewModel.folderLoopError.collectAsStateWithLifecycle()
     val lastTermuxExport by viewModel.lastTermuxExportResult.collectAsStateWithLifecycle()
 
+    val galleryLinks by viewModel.galleryLinksState.collectAsStateWithLifecycle()
+    val plans by viewModel.physicalPlansState.collectAsStateWithLifecycle()
+    val operationPreview by viewModel.operationPreview.collectAsStateWithLifecycle()
+    var operationIds by remember { mutableStateOf(emptySet<Long>()) }
+    if(operationIds.isNotEmpty()) OperationIntentDialog(operationIds,mediaItems,categories,galleryLinks,
+        onPreview=viewModel::requestOperationPreview,onDismiss={operationIds=emptySet()})
+    operationPreview?.let { OperationPreviewDialog(it,viewModel::confirmOperationPreview,viewModel::dismissOperationPreview) }
+
     val cloudUi by viewModel.cloudUi.collectAsStateWithLifecycle()
     val cloudConsent by viewModel.cloudConsent.collectAsStateWithLifecycle()
-    if (cloudConsent) CloudConsentDialog(settings.cloudOptions, cloudUi.hasKey,
+    if (cloudConsent) CloudConsentDialog(settings.cloudOptions, cloudUi.hasKey, cloudUi.modelVerified,
         onConfirm=viewModel::approveCloudBatch,
         onDismiss={ viewModel.dismissCloudConsent(); navController.popBackStack() })
 
@@ -67,42 +77,18 @@ fun AIMediaSorterNavHost(viewModel: MainViewModel) {
         containerColor = AmoledPureBlack,
         bottomBar = {
             NavigationBar(containerColor = AmoledCardSurface) {
-                NavigationBarItem(
-                    selected = currentRoute == ScreenRoute.Welcome.route,
-                    onClick = { navController.navigate(ScreenRoute.Welcome.route) { launchSingleTop = true } },
-                    icon = { Icon(Icons.Default.Home, contentDescription = null) },
-                    label = { Text(stringResource(R.string.nav_welcome)) }
+                val tabs=listOf(
+                    Triple(ScreenRoute.Welcome,R.string.nav_analyze,Icons.Default.Home),
+                    Triple(ScreenRoute.AnalysisResults,R.string.virtual_folders,Icons.Default.GridView),
+                    Triple(ScreenRoute.Review,R.string.virtual_review,Icons.Default.RateReview),
+                    Triple(ScreenRoute.FileTransfer,R.string.nav_operations,Icons.AutoMirrored.Filled.DriveFileMove),
+                    Triple(ScreenRoute.Settings,R.string.nav_settings,Icons.Default.Settings)
                 )
-                NavigationBarItem(
-                    selected = currentRoute == ScreenRoute.SourceDestination.route,
-                    onClick = { navController.navigate(ScreenRoute.SourceDestination.route) { launchSingleTop = true } },
-                    icon = { Icon(Icons.Default.Folder, contentDescription = null) },
-                    label = { Text(stringResource(R.string.nav_folders)) }
-                )
-                NavigationBarItem(
-                    selected = currentRoute == ScreenRoute.CategoryManagement.route,
-                    onClick = { navController.navigate(ScreenRoute.CategoryManagement.route) { launchSingleTop = true } },
-                    icon = { Icon(Icons.Default.Category, contentDescription = null) },
-                    label = { Text(stringResource(R.string.nav_categories)) }
-                )
-                NavigationBarItem(
-                    selected = currentRoute == ScreenRoute.AnalysisResults.route,
-                    onClick = { navController.navigate(ScreenRoute.AnalysisResults.route) { launchSingleTop = true } },
-                    icon = { Icon(Icons.Default.GridView, contentDescription = null) },
-                    label = { Text(stringResource(R.string.nav_results)) }
-                )
-                NavigationBarItem(
-                    selected = currentRoute == ScreenRoute.FileTransfer.route,
-                    onClick = { navController.navigate(ScreenRoute.FileTransfer.route) { launchSingleTop = true } },
-                    icon = { Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null) },
-                    label = { Text(stringResource(R.string.nav_transfer)) }
-                )
-                NavigationBarItem(
-                    selected = currentRoute == ScreenRoute.Settings.route,
-                    onClick = { navController.navigate(ScreenRoute.Settings.route) { launchSingleTop = true } },
-                    icon = { Icon(Icons.Default.Settings, contentDescription = null) },
-                    label = { Text(stringResource(R.string.nav_settings)) }
-                )
+                tabs.forEach { (screen,label,icon) ->
+                    NavigationBarItem(selected=currentRoute==screen.route,
+                        onClick={navController.navigate(screen.route) { launchSingleTop=true }},
+                        icon={Icon(icon,contentDescription=null)},label={Text(stringResource(label),maxLines=1)})
+                }
             }
         }
     ) { innerPadding ->
@@ -162,6 +148,20 @@ fun AIMediaSorterNavHost(viewModel: MainViewModel) {
             }
 
             composable(ScreenRoute.AnalysisResults.route) {
+                VirtualGalleryScreen(mediaItems,categories,galleryLinks,
+                    onInspect={navController.navigate(ScreenRoute.MediaDetails.createRoute(it))},
+                    onCorrect=viewModel::updateVirtualCategories,onReanalyze=viewModel::requestReanalysis,
+                    onOrganize={operationIds=it},onAnalyze={navController.navigate(ScreenRoute.SourceDestination.route)},
+                    onAdvanced={navController.navigate(ScreenRoute.AdvancedResults.route)})
+            }
+            composable(ScreenRoute.Review.route) {
+                VirtualGalleryScreen(mediaItems,categories,galleryLinks,initialFolder="__review__",
+                    onInspect={navController.navigate(ScreenRoute.MediaDetails.createRoute(it))},
+                    onCorrect=viewModel::updateVirtualCategories,onReanalyze=viewModel::requestReanalysis,
+                    onOrganize={operationIds=it},onAnalyze={navController.navigate(ScreenRoute.SourceDestination.route)},
+                    onAdvanced={navController.navigate(ScreenRoute.AdvancedResults.route)})
+            }
+            composable(ScreenRoute.AdvancedResults.route) {
                 AnalysisResultsScreen(
                     mediaItems = mediaItems,
                     categories = categories,
@@ -187,26 +187,16 @@ fun AIMediaSorterNavHost(viewModel: MainViewModel) {
             ) { entry ->
                 val itemId = entry.arguments?.getLong("itemId") ?: 0L
                 val selectedItem = mediaItems.firstOrNull { it.id == itemId }
-                MediaDetailsScreen(
-                    item = selectedItem,
-                    categories = categories,
-                    onReassignCategory = viewModel::reassignMediaCategory,
-                    onToggleExclude = viewModel::setExcludeMediaItem,
-                    onBack = { navController.popBackStack() }
-                )
+                MediaReviewScreen(selectedItem,categories,galleryLinks,
+                    onSave=viewModel::updateVirtualCategories,onReanalyze=viewModel::requestReanalysis,
+                    onOrganize={operationIds=it},onExclude=viewModel::setExcludeMediaItem,
+                    onBack={navController.popBackStack()})
             }
 
             composable(ScreenRoute.FileTransfer.route) {
-                FileTransferScreen(
-                    mediaItems = mediaItems,
-                    operationMode = settings.operationMode,
-                    transferMethod = settings.transferMethod,
-                    transferProgress = transferProgress,
-                    onCancelTransfer = viewModel::cancelTransfers,
-                    onConfirmAndExecuteTransfer = { includeReview ->
-                        viewModel.executeTransfers(includeReview)
-                    }
-                )
+                PhysicalOperationsScreen(plans,mediaItems,transferProgress,viewModel::cancelTransfers,
+                    onGallery={navController.navigate(ScreenRoute.AnalysisResults.route)},
+                    onDestination={navController.navigate(ScreenRoute.SourceDestination.route)})
             }
 
             composable(ScreenRoute.Settings.route) {

@@ -46,13 +46,14 @@ class GeminiKeyVault(context: Context, namespace: String = "user") {
         if(runCatching { read()==normalized }.getOrDefault(false)) return
         val cipher=Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE,key()) }
         val data=byteArrayOf(cipher.iv.size.toByte())+cipher.iv+cipher.doFinal(normalized.toByteArray(Charsets.UTF_8))
+        // Rotate the non-secret epoch BEFORE publication so a crash cannot authorize a new key with an old grant.
+        check(metadata.edit().putInt("revision",revision+1).commit())
         val stream=file.startWrite()
         try { stream.write(data);file.finishWrite(stream) } catch(e: Exception) { file.failWrite(stream);throw e }
-        check(metadata.edit().putInt("revision",revision+1).commit())
     }
     @Synchronized fun clear() {
+        check(metadata.edit().putInt("revision",revision+1).commit())
         file.delete()
         KeyStore.getInstance("AndroidKeyStore").apply { load(null);deleteEntry(alias) }
-        check(metadata.edit().putInt("revision",revision+1).commit())
     }
 }

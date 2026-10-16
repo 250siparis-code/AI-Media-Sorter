@@ -40,13 +40,14 @@ data class LiveTransferProgress(
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class MediaRepository(private val context: Context) {
-    private val db = AppDatabase.getInstance(context)
+class MediaRepository(private val context: Context, database: AppDatabase?=null,
+    settings: SettingsRepository?=null,cloudService: CloudAnalysisService?=null) {
+    private val db = database ?: AppDatabase.getInstance(context)
     private val operationMutex = Mutex()
-    val settingsRepository = SettingsRepository(context)
+    val settingsRepository = settings ?: SettingsRepository(context)
     val timestampManager = ExifAndTimestampManager(context)
     val storageScanner = StorageScanner(context)
-    val cloud = CloudAnalysisService(context)
+    val cloud = cloudService ?: CloudAnalysisService(context)
     val safeFileMover = SafeFileMover(context, timestampManager, storageScanner)
     val reportExporter = ReportExporter(context)
     val termuxExporter = TermuxOperationExporter(context)
@@ -168,7 +169,11 @@ class MediaRepository(private val context: Context) {
         }
     }
 
-    suspend fun authorizeCloudBatch(settings: AppSettings): String = cloud.authorize(signature(settings, db.categoryDao().getAllCategories()), settings.cloudOptions)
+    private fun scope(ids: Set<Long>,force: Boolean)=digest(ids.sorted().joinToString(",")+";force="+force)
+    suspend fun authorizeCloudBatch(settings: AppSettings,ids: Set<Long> = emptySet(),force: Boolean=false): String {
+        require(ids.size<=100)
+        return cloud.authorize(signature(settings,db.categoryDao().getAllCategories())+";scope="+scope(ids,force),settings.cloudOptions)
+    }
 
     suspend fun executeMediaScanAndAnalysis(settings: AppSettings, cloudBatchId: String = "", selectedIds: Set<Long> = emptySet(), forceReanalysis: Boolean = false) = withContext(Dispatchers.IO) {
         operationMutex.withLock {
@@ -234,7 +239,7 @@ class MediaRepository(private val context: Context) {
                         val metadata = timestampManager.inspectMediaMetadata(candidate.uri, candidate.filePath,
                             candidate.isVideo, candidate.lastModifiedMs)
                         var metrics = try {
-                            cloud.analyze(settings, cloudBatchId, configuration, sourceChecksum, enabled,
+                            cloud.analyze(settings, cloudBatchId, configuration+";scope="+scope(selectedIds,forceReanalysis), sourceChecksum, enabled,
                                 candidate.uri, candidate.filePath, candidate.isVideo, metadata.orientationDegrees, metadata.isMirrored,
                                 force=forceReanalysis) {
                                 val live = settingsRepository.settingsFlow.first()
