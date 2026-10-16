@@ -53,7 +53,7 @@ class CloudNativeTest {
             assertTrue(db.usage().startsWith("2 /"))
             db.begin(batch,"original-hash-and-config")
             expect(CloudErrorKind.NETWORK) { db.begin(batch,"original-hash-and-config") }
-            val decision=CloudDecision("cat_food","Meal",emptyList(),"CLEAR")
+            val decision=CloudDecision(listOf("cat_food"),listOf(CloudSubject("Meal","main")),"","",emptyList(),"Meal","CLEAR")
             db.complete(batch,"original-hash-and-config",CloudResponse(decision,11,9))
             assertEquals(decision,db.cached("original-hash-and-config"))
             assertNull(db.cached("different-config"))
@@ -133,7 +133,7 @@ class CloudNativeTest {
             val response=client.classify(key,limits,listOf(cat),images) {
                 db.reserve(batch,"explicit-synthetic-live-test",vault.revision)
             }
-            assertTrue(response.decision.category in setOf("cat_other","__review__"))
+            assertTrue(response.decision.categories.all { it=="cat_other" })
         } finally { db.close();context.deleteDatabase(dbName);file.delete() }
     }
 }

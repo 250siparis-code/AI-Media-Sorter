@@ -253,4 +253,19 @@
     <string name="cloud_saved_unverified">API key saved securely. Authentication has not been tested.</string>
     <string name="cloud_deleted">API key deleted.</string>
     <string name="cloud_connection_ok">Connection successful.</string>
+    <string name="gemini_only_note">Gemini is the only active analysis engine. No offline fallback. Analysis and virtual folders never move files.</string>
+    <string name="cloud_test_connection">Test connection / Load models</string>
+    <string name="cloud_test_model">Test selected model (synthetic image)</string>
+    <string name="cloud_catalog_note">The catalog lists content-generation candidates. Test the selected model with a synthetic image to verify image input and JSON support. No personal media is sent by this test; one generation request uses your quota.</string>
+    <string name="cloud_model_saved">Model and limits saved.</string>
+    <string name="cloud_model_ok">Model test successful: image input and structured output verified.</string>
+    <string name="cloud_save_failed">Secure saving failed. Check that the key is complete and contains no internal spaces. Input was retained.</string>
+    <string name="cloud_delete_failed">Key deletion failed. Please try again.</string>
+    <string name="cloud_error_auth">Authentication failed. Check the key, project access and restrictions.</string>
+    <string name="cloud_error_quota">Quota exceeded or rate limited. Wait and check the Free Tier quota.</string>
+    <string name="cloud_error_network">Network error or timeout. No category was guessed. Review before retrying.</string>
+    <string name="cloud_error_model">Model unavailable or incompatible. Load models and select another model.</string>
+    <string name="cloud_error_server">Google service is temporarily unavailable. Retry later.</string>
+    <string name="cloud_error_billing">Billing or payment is unavailable. The app has not changed billing settings.</string>
+    <string name="cloud_error_response">Request rejected or malformed response. No classification was guessed. Check the model and retry.</string>
 </resources>

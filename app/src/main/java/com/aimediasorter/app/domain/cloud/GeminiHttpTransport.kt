@@ -44,6 +44,8 @@ class GeminiHttpTransport : CloudTransport {
                     if(data.size>131_072) throw CloudFailure(CloudErrorKind.RESPONSE)
                     if(continuation.isActive) continuation.resume(CloudHttpResponse(code,data.toString(Charsets.UTF_8),
                         c.getHeaderField("Retry-After")?.toLongOrNull() ?: 0))
+                } catch (_: java.net.SocketTimeoutException) {
+                    if(continuation.isActive) continuation.resumeWithException(CloudFailure(CloudErrorKind.TIMEOUT))
                 } catch (known: CloudFailure) {
                     if(continuation.isActive) continuation.resumeWithException(known)
                 } catch (_: Exception) {

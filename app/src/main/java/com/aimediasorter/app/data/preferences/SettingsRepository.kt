@@ -72,7 +72,7 @@ class SettingsRepository(private val context: Context) {
 
     val settingsFlow: Flow<AppSettings> = context.dataStore.data.map { prefs ->
         AppSettings(
-            cloudOptions = runCatching { Json.decodeFromString<CloudOptions>(prefs[Keys.CLOUD_OPTIONS] ?: "{}") }.getOrDefault(CloudOptions()),
+            cloudOptions = runCatching { Json.decodeFromString<CloudOptions>(prefs[Keys.CLOUD_OPTIONS] ?: "{}") }.getOrDefault(CloudOptions()).copy(mode=com.aimediasorter.app.domain.cloud.AnalysisMode.GEMINI),
             analysisPaused = prefs[Keys.ANALYSIS_PAUSED] ?: false,
             sourceUri = prefs[Keys.SOURCE_URI] ?: "",
             destinationUri = prefs[Keys.DESTINATION_URI] ?: "",
@@ -107,7 +107,7 @@ class SettingsRepository(private val context: Context) {
         )
     }
 
-    suspend fun updateCloudOptions(options: CloudOptions) = context.dataStore.edit { options.validate(); it[Keys.CLOUD_OPTIONS] = Json.encodeToString(options) }
+    suspend fun updateCloudOptions(options: CloudOptions) = context.dataStore.edit { options.validate(); it[Keys.CLOUD_OPTIONS] = Json.encodeToString(options.copy(mode=com.aimediasorter.app.domain.cloud.AnalysisMode.GEMINI)) }
     suspend fun updateAnalysisPaused(paused: Boolean) = context.dataStore.edit { it[Keys.ANALYSIS_PAUSED] = paused }
     suspend fun updateSourceUri(uri: String) = context.dataStore.edit { it[Keys.SOURCE_URI] = uri }
     suspend fun updateDestinationUri(uri: String) = context.dataStore.edit { it[Keys.DESTINATION_URI] = uri }

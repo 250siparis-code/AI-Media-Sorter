@@ -88,6 +88,9 @@ class CloudStateStore(context: Context, databaseName: String = "gemini_private_s
             db.setTransactionSuccessful()
         } finally { db.endTransaction() }
     }
+    fun recordUsage(response: CloudResponse) {
+        writableDatabase.execSQL("UPDATE daily SET inputTokens=inputTokens+?,outputTokens=outputTokens+? WHERE day=?",arrayOf(response.inputTokens,response.outputTokens,day()))
+    }
     fun usage(): String = readableDatabase.rawQuery("SELECT used,inputTokens,outputTokens FROM daily WHERE day=?",arrayOf(day())).use { c ->
         if(!c.moveToFirst()) "0 / 0 / 0" else c.getInt(0).toString()+" / "+c.getLong(1)+" / "+c.getLong(2)
     }

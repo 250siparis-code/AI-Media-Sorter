@@ -218,6 +218,7 @@ fun AIMediaSorterNavHost(viewModel: MainViewModel) {
                     onClearKey = viewModel::clearGeminiKey,
                     onRefreshModels = viewModel::refreshGeminiModels,
                     onRefreshCloudState = viewModel::refreshCloudLocalState,
+                    onTestModel = viewModel::testGeminiModel,
                     sessions = sessions,
                     exportStatusMessage = exportMessage,
                     onLanguageChange = viewModel::setLanguage,

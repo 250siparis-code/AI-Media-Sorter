@@ -253,4 +253,19 @@
     <string name="cloud_saved_unverified">API anahtarı güvenli kaydedildi. Kimlik doğrulama henüz test edilmedi.</string>
     <string name="cloud_deleted">API anahtarı silindi.</string>
     <string name="cloud_connection_ok">Bağlantı başarılı.</string>
+    <string name="gemini_only_note">Bu aşamada tek analiz motoru Gemini. Çevrimdışı yedek motor yok. Analiz ve sanal klasörler dosyaları taşımaz.</string>
+    <string name="cloud_test_connection">Bağlantıyı test et / Modelleri yükle</string>
+    <string name="cloud_test_model">Seçili modeli test et (yapay görsel)</string>
+    <string name="cloud_catalog_note">Liste, içerik üretimini destekleyen adayları gösterir. Görsel ve JSON desteğini doğrulamak için seçili modeli yapay bir görselle test edin. Kişisel medya gönderilmez; bir üretim isteği kotanızdan kullanılır.</string>
+    <string name="cloud_model_saved">Model ve sınırlar kaydedildi.</string>
+    <string name="cloud_model_ok">Model testi başarılı: görsel girişi ve yapılandırılmış yanıt doğrulandı.</string>
+    <string name="cloud_save_failed">Güvenli kayıt başarısız. Anahtarın eksiksiz ve içinde boşluk olmadığını kontrol edin. Girdi korundu.</string>
+    <string name="cloud_delete_failed">Anahtar silinemedi. Yeniden deneyin.</string>
+    <string name="cloud_error_auth">Kimlik doğrulama başarısız. Anahtarı, proje erişimini ve kısıtlamaları kontrol edin.</string>
+    <string name="cloud_error_quota">Kota doldu veya hız sınırına ulaşıldı. Bekleyin ve ücretsiz katman kotasını kontrol edin.</string>
+    <string name="cloud_error_network">Ağ hatası veya zaman aşımı. Kategori tahmin edilmedi. Yeniden denemeden önce kontrol edin.</string>
+    <string name="cloud_error_model">Model kullanılamıyor veya uyumsuz. Modelleri yükleyip başka model seçin.</string>
+    <string name="cloud_error_server">Google hizmeti geçici olarak kullanılamıyor. Daha sonra deneyin.</string>
+    <string name="cloud_error_billing">Faturalandırma veya ödeme kullanılamıyor. Uygulama fatura ayarlarını değiştirmedi.</string>
+    <string name="cloud_error_response">İstek reddedildi veya yanıt geçersiz. Sınıflandırma tahmin edilmedi. Modeli kontrol edip yeniden deneyin.</string>
 </resources>

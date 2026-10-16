@@ -39,7 +39,7 @@ class CachedMetadataTest {
             // Simulate a prior verified COPY result; cached timestamp claims must become stale after touch.
             database.mediaItemDao().updateMediaItem(first.copy(
                 transferStatus = com.aimediasorter.app.data.model.TransferItemStatus.COMPLETED_VERIFIED.name,
-                timestampVerified = true, destinationUriString = Uri.fromFile(file).toString()))
+                isManuallyCorrected = true, timestampVerified = true, destinationUriString = Uri.fromFile(file).toString()))
             check(file.setLastModified(after))
             repository.executeMediaScanAndAnalysis(settings)
             val second = database.mediaItemDao().getCurrentMediaItems(folder.path).single()
@@ -51,7 +51,6 @@ class CachedMetadataTest {
             assertEquals(com.aimediasorter.app.data.model.TransferItemStatus.COMPLETED_TIMESTAMP_WARNING.name,
                 second.transferStatus)
         } finally {
-            repository.aiClassifier.close()
             database.openHelper.writableDatabase.execSQL(
                 "DELETE FROM media_items WHERE sourceRootUri = ?", arrayOf(folder.path))
             database.openHelper.writableDatabase.execSQL(

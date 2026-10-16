@@ -56,7 +56,7 @@ class DatabaseMigrationTest {
                 db.version = 1
             }
             val migrated = Room.databaseBuilder(context, AppDatabase::class.java, name)
-                .addMigrations(AppDatabase.MIGRATION_1_2).build()
+                .addMigrations(AppDatabase.MIGRATION_1_2,AppDatabase.MIGRATION_2_3).build()
             try {
                 val preserved = requireNotNull(migrated.mediaItemDao().getByUri("content://legacy/photo"))
                 assertEquals("legacy.jpg", preserved.fileName)

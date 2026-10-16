@@ -1,30 +1,30 @@
 package com.aimediasorter.app.domain.cloud
+
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Color
 import android.net.Uri
 import com.aimediasorter.app.data.local.CategoryEntity
 import com.aimediasorter.app.data.local.CloudStateStore
 import com.aimediasorter.app.data.model.ClassificationScoreMetrics
 import com.aimediasorter.app.data.preferences.AppSettings
 import com.aimediasorter.app.data.preferences.GeminiKeyVault
-import com.aimediasorter.app.domain.ai.VisualFeatureExtractor
 import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import java.io.ByteArrayOutputStream
 import java.security.MessageDigest
 
 object CloudApproval {
-    /** A failed upload must be retryable in a NEW explicitly consented batch.
-     * Same-batch uncertain requests remain blocked by the durable attempt journal.
-     */
     fun shouldReuse(mode: AnalysisMode,note: String,analyzedAt: Long,manuallyCorrected: Boolean,
                     now: Long=System.currentTimeMillis()): Boolean {
-        if(mode==AnalysisMode.OFFLINE || manuallyCorrected) return true
-        val age=now-analyzedAt
-        return age in 0..604_800_000L &&
-            (note.contains("No calibrated Gemini probability is available.") ||
-             note.startsWith("Gemini selected unknown/ambiguous content."))
+        if(manuallyCorrected) return true
+        return now-analyzedAt in 0..604_800_000L &&
+            note.contains("No calibrated Gemini probability is available.")
     }
-    fun requiresIndividualReview(engine: String)=engine in setOf("GEMINI","GEMINI_HYBRID_REVIEW")
+    fun requiresIndividualReview(engine: String)=engine.startsWith("GEMINI")
 }
-class CloudAnalysisService(context: Context,extractor: VisualFeatureExtractor,
+class CloudAnalysisService(context: Context,
     private val client: GeminiClient=GeminiClient(GeminiHttpTransport())) {
     val vault=GeminiKeyVault(context)
     val state=CloudStateStore(context)
@@ -35,21 +35,42 @@ class CloudAnalysisService(context: Context,extractor: VisualFeatureExtractor,
         return state.authorize(signature,vault.revision,options)
     }
     suspend fun refreshModels(): List<String> {
-        val credential=try { vault.snapshot() } catch (_: Exception) { throw CloudFailure(CloudErrorKind.AUTH) }
+        val credential=try { vault.snapshot() } catch(_: Exception) { throw CloudFailure(CloudErrorKind.AUTH) }
         val models=client.models(credential.secret)
         if(vault.revision!=credential.revision) throw CloudFailure(CloudErrorKind.CONSENT)
-        state.replaceModels(credential.revision,models);return models
+        state.replaceModels(credential.revision,models)
+        return models
+    }
+    /** Explicit button only; sends one synthetic image, never a user photo. Uses persisted quotas. */
+    suspend fun testSelectedModel(options: CloudOptions) {
+        val credential=try { vault.snapshot() } catch(_: Exception) { throw CloudFailure(CloudErrorKind.AUTH) }
+        val catalog=refreshModels()
+        if(options.model !in catalog) throw CloudFailure(CloudErrorKind.MODEL)
+        val signature="explicit-synthetic-model-test:"+options.model+":"+credential.revision
+        val limits=options.copy(maxRequests=1,retries=0)
+        val batch=state.authorize(signature,credential.revision,limits)
+        val image=Bitmap.createBitmap(32,32,Bitmap.Config.ARGB_8888)
+        val bytes=try {
+            image.eraseColor(Color.BLUE)
+            ByteArrayOutputStream().apply { check(image.compress(Bitmap.CompressFormat.JPEG,85,this)) }.toByteArray()
+        } finally { image.recycle() }
+        val cat=CategoryEntity("test_scene","Test scene","A synthetic color tile",0,"label",1,destinationSubfolder="Test")
+        val result=client.classify(credential.secret,limits,listOf(cat),listOf(CloudImage(bytes))) {
+            if(vault.revision!=credential.revision) throw CloudFailure(CloudErrorKind.CONSENT)
+            state.reserve(batch,signature,credential.revision)
+        }
+        state.recordUsage(result)
     }
     suspend fun analyze(settings: AppSettings,batch: String,signature: String,originalHash: String?,
         categories: List<CategoryEntity>,uri: Uri,path: String?,isVideo: Boolean,orientation: Int,mirrored: Boolean,
-        offline: ClassificationScoreMetrics?,liveCheck: suspend () -> Unit): ClassificationScoreMetrics {
+        force: Boolean=false,liveCheck: suspend ()->Unit): ClassificationScoreMetrics {
         val o=settings.cloudOptions
         var cacheKey=""
         try {
             if(originalHash==null) throw CloudFailure(CloudErrorKind.CONSENT)
             if(!o.ready() || o.model !in state.models(vault.revision)) throw CloudFailure(CloudErrorKind.CONFIG)
             cacheKey=digest(originalHash+";"+vault.revision+";"+o.model+";"+o.maxOutputTokens+";"+orientation+";"+mirrored+";"+isVideo+";"+CloudProtocol.VERSION+";"+CloudProtocol.categories(categories))
-            var decision=state.cached(cacheKey)
+            var decision=if(force) null else state.cached(cacheKey)
             var sampledTimes=""
             if(decision==null) {
                 if(batch.isBlank()) throw CloudFailure(CloudErrorKind.CONSENT)
@@ -57,41 +78,36 @@ class CloudAnalysisService(context: Context,extractor: VisualFeatureExtractor,
                 state.begin(batch,cacheKey)
                 val images=encoder.images(uri,path,isVideo,orientation,mirrored)
                 sampledTimes=images.mapNotNull { it.timestampMs }.joinToString(",")
-                val credential=try { vault.snapshot() } catch (_: Exception) { throw CloudFailure(CloudErrorKind.AUTH) }
+                val credential=try { vault.snapshot() } catch(_: Exception) { throw CloudFailure(CloudErrorKind.AUTH) }
                 val response=client.classify(credential.secret,o,categories,images) {
                     liveCheck()
                     if(vault.revision!=credential.revision) throw CloudFailure(CloudErrorKind.CONSENT)
                     state.reserve(batch,signature,credential.revision)
                 }
-                liveCheck() // Do not cache a result against bytes/configuration that changed in flight.
+                liveCheck()
                 if(vault.revision!=credential.revision) throw CloudFailure(CloudErrorKind.CONSENT)
                 state.complete(batch,cacheKey,response);decision=response.decision
             }
             val result=decision ?: throw CloudFailure(CloudErrorKind.RESPONSE)
-            val cat=categories.firstOrNull { it.id==result.category }
-            if(cat==null) return review(offline,"Gemini selected unknown/ambiguous content.")
-            val note="Gemini: "+result.short_description+
-                (if(isVideo) " Joint sampled-frame result at requested 10/50/90 percent offsets; duplicate or undecodable frames omitted. "+(if(sampledTimes.isEmpty()) "Cached sample result." else "Decoded request offsets (ms): $sampledTimes.")+" Not complete-video analysis." else "")+
+            require(result.categories.all { id -> categories.any { it.id==id } })
+            val one=categories.firstOrNull { it.id==result.categories.singleOrNull() }
+            val note="Gemini: "+result.reason+
+                (if(isVideo) " Joint sampled-frame analysis at requested 10/50/90 percent offsets; duplicate/undecodable frames omitted. "+
+                    (if(sampledTimes.isEmpty()) "Cached sample result." else "Decoded request offsets (ms): "+sampledTimes+".")+" Not complete-video analysis." else "")+
                 " No calibrated Gemini probability is available."
-            val agreement=offline!=null && offline.categoryId==cat.id && !offline.needsManualReview &&
-                result.review_status=="CLEAR" && result.alternative_categories.isEmpty()
-            if(agreement) return offline!!.copy(primarySubjectNote=note+" ML Kit agrees; score is ML Kit evidence.",
-                inferenceEngine="GEMINI_HYBRID_AGREEMENT")
-            return ClassificationScoreMetrics(cat.id,cat.name,0f,0f,0f,
-                secondaryCategoryName=result.alternative_categories.firstOrNull()?.let { id -> categories.firstOrNull { it.id==id }?.name },
-                needsManualReview=true,primarySubjectNote=note+" Individual category approval is required.",
-                inferenceEngine=if(offline==null) "GEMINI" else "GEMINI_HYBRID_REVIEW")
+            return ClassificationScoreMetrics(one?.id ?: "__review__",one?.name ?: "Needs Review",0f,0f,0f,
+                needsManualReview=result.needsReview,primarySubjectNote=note,inferenceEngine="GEMINI",
+                proposedCategoryIds=result.categories,analysisJson=Json.encodeToString(result),
+                analysisStatus=if(result.needsReview) "NEEDS_REVIEW" else "PROPOSED",analysisModel=o.model)
         } catch(cancelled: CancellationException) { throw cancelled }
         catch(error: CloudFailure) {
             if(batch.isNotBlank() && cacheKey.isNotBlank()) state.failed(batch,cacheKey,error.kind)
-            return review(offline,error.message.orEmpty())
-        } catch (_: Exception) {
+            return failed(error.message.orEmpty(),o.model)
+        } catch(_: Exception) {
             if(batch.isNotBlank() && cacheKey.isNotBlank()) state.failed(batch,cacheKey,CloudErrorKind.RESPONSE)
-            return review(offline,"Gemini input or response could not be verified.")
+            return failed(CloudFailure(CloudErrorKind.RESPONSE).message.orEmpty(),o.model)
         }
     }
-    private fun review(offline: ClassificationScoreMetrics?,note: String): ClassificationScoreMetrics =
-        offline?.copy(needsManualReview=true,primarySubjectNote=note+" Offline result retained for review.",
-            inferenceEngine="GEMINI_HYBRID_REVIEW") ?: ClassificationScoreMetrics("cat_other","Other",0f,0f,0f,
-            needsManualReview=true,primarySubjectNote=note,inferenceEngine="GEMINI")
+    private fun failed(note: String,model: String)=ClassificationScoreMetrics("__failed__","Analysis Failed",0f,0f,0f,
+        needsManualReview=true,primarySubjectNote=note,inferenceEngine="GEMINI",analysisStatus="FAILED",analysisModel=model)
 }

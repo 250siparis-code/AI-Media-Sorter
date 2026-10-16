@@ -3,6 +3,7 @@ package com.aimediasorter.app.data.local
 import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
+import androidx.room.ForeignKey
 import androidx.room.PrimaryKey
 import com.aimediasorter.app.data.model.TransferItemStatus
 import kotlinx.serialization.Serializable
@@ -70,7 +71,11 @@ data class MediaItemEntity(
     @ColumnInfo(defaultValue = "''") val sourceRootUri: String = "",
     @ColumnInfo(defaultValue = "''") val scanSessionId: String = "",
     @ColumnInfo(defaultValue = "''") val analysisSignature: String = "",
-    @ColumnInfo(defaultValue = "'legacy'") val inferenceEngine: String = "legacy"
+    @ColumnInfo(defaultValue = "'legacy'") val inferenceEngine: String = "legacy",
+    @ColumnInfo(defaultValue = "'LEGACY'") val analysisStatus: String = "LEGACY",
+    @ColumnInfo(defaultValue = "''") val analysisModel: String = "",
+    @ColumnInfo(defaultValue = "'{}'") val analysisJson: String = "{}",
+    @ColumnInfo(defaultValue = "0") val decisionVersion: Int = 0
 )
 
 @Entity(tableName = "transfer_logs")
@@ -127,4 +132,31 @@ data class TransferJournalEntity(
     val timestampPreserved: Boolean,
     val updatedAtMs: Long,
     val details: String
+)
+
+/** Multiple logical references to one original; never represents copied media bytes. */
+@Entity(tableName="media_category_links", primaryKeys=["mediaId","categoryId","origin"],
+    indices=[Index(value=["categoryId"]),Index(value=["mediaId"])],
+    foreignKeys=[
+        ForeignKey(entity=MediaItemEntity::class,parentColumns=["id"],childColumns=["mediaId"],onDelete=ForeignKey.CASCADE),
+        ForeignKey(entity=CategoryEntity::class,parentColumns=["id"],childColumns=["categoryId"],onDelete=ForeignKey.CASCADE)
+    ])
+data class MediaCategoryLink(val mediaId: Long,val categoryId: String,val origin: String)
+
+/** User-approved immutable physical operation; created only after preview confirmation. */
+@Entity(tableName="physical_plans")
+data class PhysicalPlanEntity(
+    @PrimaryKey val id: String,
+    val mediaId: Long,
+    val categoryId: String,
+    val method: String,
+    val sourceHash: String,
+    val decisionVersion: Int,
+    val destinationRoot: String,
+    val destinationFolder: String,
+    val groupId: String,
+    val sequence: Int,
+    val status: String = "APPROVED",
+    val destinationUri: String? = null,
+    val note: String = ""
 )

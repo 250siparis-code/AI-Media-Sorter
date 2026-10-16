@@ -17,10 +17,11 @@ import java.math.BigDecimal
 
 data class CloudUiState(val hasKey: Boolean=false,val models: List<String> = emptyList(),
     val usage: String="0 / 0 / 0",val busy: Boolean=false,val error: String?=null,
-    val message: String?=null,val savedRevision: Int=0)
+    val message: String?=null,val savedRevision: Int=0,val failure: CloudErrorKind?=null)
 
 @Composable fun CloudSettingsCard(o: CloudOptions,state: CloudUiState,onOptions: (CloudOptions)->Unit,
-    onSaveKey: (String)->Unit,onClearKey: ()->Unit,onRefreshModels: ()->Unit,onRefreshState: ()->Unit) {
+    onSaveKey: (String)->Unit,onClearKey: ()->Unit,onRefreshModels: ()->Unit,onRefreshState: ()->Unit,
+    onTestModel: ()->Unit) {
     var key by remember { mutableStateOf("") }
     var menu by remember { mutableStateOf(false) }
     var invalid by remember { mutableStateOf(false) }
@@ -43,13 +44,7 @@ data class CloudUiState(val hasKey: Boolean=false,val models: List<String> = emp
     OutlinedCard(modifier=Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.cloud_title),style=MaterialTheme.typography.titleMedium)
-            AnalysisMode.entries.forEach { mode ->
-                val label=when(mode) { AnalysisMode.OFFLINE->R.string.cloud_offline;AnalysisMode.GEMINI->R.string.cloud_gemini;AnalysisMode.HYBRID->R.string.cloud_hybrid }
-                Row {
-                    RadioButton(o.mode==mode,onClick={onOptions(o.copy(mode=mode))})
-                    Text(stringResource(label),Modifier.padding(top=12.dp))
-                }
-            }
+            Text(stringResource(R.string.gemini_only_note))
             Text(stringResource(R.string.cloud_privacy))
             OutlinedTextField(key,{key=it},label={Text(stringResource(R.string.cloud_key))},
                 visualTransformation=PasswordVisualTransformation(),keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Password),
@@ -59,17 +54,18 @@ data class CloudUiState(val hasKey: Boolean=false,val models: List<String> = emp
                 OutlinedButton(enabled=state.hasKey,onClick={key="";onClearKey()}) { Text(stringResource(R.string.cloud_clear_key)) }
             }
             Text(stringResource(if(state.hasKey) R.string.cloud_key_saved else R.string.cloud_key_missing))
-            OutlinedButton(enabled=state.hasKey&&!state.busy,onClick=onRefreshModels) { Text(stringResource(R.string.cloud_refresh_models)) }
+            OutlinedButton(enabled=state.hasKey&&!state.busy,onClick=onRefreshModels) { Text(stringResource(R.string.cloud_test_connection)) }
             if(state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             Box {
-                OutlinedButton(onClick={menu=true},enabled=state.models.isNotEmpty()) {
+                OutlinedButton(onClick={menu=true},enabled=state.models.isNotEmpty()&&!state.busy) {
                     Text(o.model.ifBlank { stringResource(R.string.cloud_select_model) })
                 }
                 DropdownMenu(expanded=menu,onDismissRequest={menu=false}) {
                     state.models.forEach { name -> DropdownMenuItem(text={Text(name)},onClick={menu=false;onOptions(o.copy(model=name))}) }
                 }
             }
-            Text(stringResource(R.string.cloud_model_note),style=MaterialTheme.typography.bodySmall)
+            OutlinedButton(enabled=state.hasKey&&!state.busy&&o.model in state.models,onClick=onTestModel) { Text(stringResource(R.string.cloud_test_model)) }
+            Text(stringResource(R.string.cloud_catalog_note),style=MaterialTheme.typography.bodySmall)
             OutlinedTextField(maxRequests,{maxRequests=it},label={Text(stringResource(R.string.cloud_max_requests))},singleLine=true)
             OutlinedTextField(daily,{daily=it},label={Text(stringResource(R.string.cloud_daily_requests))},singleLine=true)
             OutlinedTextField(tokens,{tokens=it},label={Text(stringResource(R.string.cloud_output_tokens))},singleLine=true)
@@ -87,10 +83,13 @@ data class CloudUiState(val hasKey: Boolean=false,val models: List<String> = emp
                 } catch(_: Exception) { invalid=true }
             }) { Text(stringResource(R.string.cloud_save_limits)) }
             if(invalid) Text(stringResource(R.string.cloud_invalid_limits),color=MaterialTheme.colorScheme.error)
-            if(state.error!=null) Text(state.error,color=MaterialTheme.colorScheme.error)
+            state.failure?.let { Text(cloudFailureText(it),color=MaterialTheme.colorScheme.error) }
+            if(state.error!=null) Text(stringResource(if(state.error=="DELETE") R.string.cloud_delete_failed else R.string.cloud_save_failed),color=MaterialTheme.colorScheme.error)
             state.message?.let { Text(stringResource(when(it) {
                 "SAVED"->R.string.cloud_saved_unverified
                 "DELETED"->R.string.cloud_deleted
+                "MODEL_SAVED"->R.string.cloud_model_saved
+                "MODEL_OK"->R.string.cloud_model_ok
                 else->R.string.cloud_connection_ok
             })) }
             Text(stringResource(R.string.cloud_usage,state.usage))
@@ -110,3 +109,13 @@ data class CloudUiState(val hasKey: Boolean=false,val models: List<String> = emp
         confirmButton={TextButton(enabled=accepted&&hasKey&&options.ready(),onClick=onConfirm) { Text(stringResource(R.string.cloud_consent_send)) }},
         dismissButton={TextButton(onClick=onDismiss) { Text(stringResource(R.string.cloud_consent_cancel)) }})
 }
+
+@Composable fun cloudFailureText(kind: CloudErrorKind): String = stringResource(when(kind) {
+    CloudErrorKind.AUTH -> R.string.cloud_error_auth
+    CloudErrorKind.QUOTA -> R.string.cloud_error_quota
+    CloudErrorKind.NETWORK, CloudErrorKind.TIMEOUT -> R.string.cloud_error_network
+    CloudErrorKind.MODEL -> R.string.cloud_error_model
+    CloudErrorKind.SERVER -> R.string.cloud_error_server
+    CloudErrorKind.BILLING -> R.string.cloud_error_billing
+    else -> R.string.cloud_error_response
+})
