@@ -96,7 +96,7 @@ import com.aimediasorter.app.ui.theme.*
         if(folder.isEmpty()) {
             val cards=categories.map { it.id }+listOf("__review__","__failed__","__pending__","__all__")
             LazyVerticalGrid(GridCells.Adaptive(150.dp),verticalArrangement=Arrangement.spacedBy(10.dp),
-                horizontalArrangement=Arrangement.spacedBy(10.dp),modifier=Modifier.weight(1f)) {
+                horizontalArrangement=Arrangement.spacedBy(10.dp),modifier=Modifier.weight(1f).testTag("virtual-folder-grid")) {
                 items(cards,key={it}) { id ->
                     val items=when(id) {
                         "__review__"->review;"__failed__"->failed;"__pending__"->pending;"__all__"->media
@@ -138,7 +138,7 @@ import com.aimediasorter.app.ui.theme.*
             }
             if(visible.isEmpty()) Text(stringResource(R.string.virtual_empty))
             LazyVerticalGrid(GridCells.Adaptive(112.dp),verticalArrangement=Arrangement.spacedBy(6.dp),
-                horizontalArrangement=Arrangement.spacedBy(6.dp),modifier=Modifier.weight(1f)) {
+                horizontalArrangement=Arrangement.spacedBy(6.dp),modifier=Modifier.weight(1f).testTag("virtual-media-grid")) {
                 items(visible,key={it.id}) { item ->
                     Surface(color=AmoledPureBlack,border=BorderStroke(if(item.id in selected) 2.dp else 1.dp,
                         if(item.id in selected) PrimaryPurple else AmoledSubtleBorder),shape=RoundedCornerShape(8.dp),

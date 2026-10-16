@@ -60,9 +60,9 @@ Matching approved/completed/recovery plans are rejected rather than silently pro
 - HIGH: Per-instance synchronization did not protect independent vault instances sharing one AtomicFile. A concurrent read could discard a replacement. The canonical-file process lock protects the full credential/revision transaction; the application has no separately declared service process.
 - MEDIUM: Generic 'billing' text previously overrode HTTP 429/5xx and suppressed quota retries. HTTP status now takes precedence; quota messages linking to billing help retain QUOTA and bounded retry/backoff. A mocked realistic response verifies reservations, delays, catalog state and server state.
 - MEDIUM: Settings needed IME insets so key actions remain reachable while typing under edge-to-edge display.
-- MEDIUM: Text-only navigation selectors, generic UiScrollable lookup and manually finishing Activities produced intermittent installed-UI failures. Tests now use stable action/viewport IDs, bounded real swipes and ActivityScenario lifecycle synchronization. Empty-disabled, AQ-enabled, Save, Activity recreation, Replace and Delete assertions remain.
+- MEDIUM: Text-only navigation selectors, generic UiScrollable lookup and manually finishing Activities produced intermittent installed-UI failures. Tests now use stable action/viewport IDs, the official Compose instrumentation driver and ActivityScenario lifecycle synchronization. Empty-disabled, AQ-enabled, Save, Activity recreation, Replace and Delete assertions remain.
 - MEDIUM: The gallery smoke test could find a thumbnail but fail to reach the full-image button in a shorter viewport. It now scrolls the actual review viewport and waits for bitmap decode in both the gallery and full-screen dialog. Original fixture bytes must remain identical.
-- Release test boundary: DataStore and lifecycle APIs called from the separately packaged acceptance APK need preserved runtime contracts. Narrow lifecycle keeps join the existing DataStore/Room/Kotlin/coroutines rules. R8 and resource shrinking remain enabled. Mock response construction uses Android org.json rather than a serialization builder removed as unused by R8.
+- Release test boundary: DataStore and lifecycle APIs called from the separately packaged acceptance APK need preserved runtime contracts. The app-provided Compose UI/runtime contracts and narrow lifecycle keeps join the existing DataStore/Room/Kotlin/coroutines rules. R8 and resource shrinking remain enabled. Mock response construction uses Android org.json rather than a serialization builder removed as unused by R8.
 - Test diagnostics: Crash-buffer logcat is captured inside the failing emulator command before the runner terminates the device. A process crash is not dismissed as a passed or skipped test.
 - The previous source screen required a destination even for analysis; initial scanning now requires only a source. Physical destination safety checks remain in the explicit operation preview. Category Upsert preserves membership links.
 
@@ -71,6 +71,8 @@ Implementation references:
 - https://developer.android.com/guide/components/activities/testing
 - https://developer.android.com/develop/ui/compose/testing/interoperability
 
+Compose testing uses the existing BOM and real app Activities. A rule chain seeds isolated fixtures before Activity launch and cleans them only after complete Activity/ViewModel destruction. The key test closes and relaunches a fresh Activity/ViewModel, checks encrypted readback and user-visible Save success, and retains all enabled/disabled/Replace/Delete checks. Emulator jobs build their own test artifacts independently of the distributable-APK job, so both validations run concurrently without omitting any check.
+
 ## Executed verification
 
 __FINAL_VERIFICATION__
@@ -78,7 +80,7 @@ __FINAL_VERIFICATION__
 At the time of the preceding code commit (95c74057dcb4bf6ed4cdbaf9069c305f4851f8e3), GitHub Actions produced all four APKs, passed 45 JVM and 20 Python tests, and passed four PR emulator configurations. API 34 debug failed the installed-gallery lookup; a separate push run also exposed installed-key lookup and an interrupted release test process. These are not recorded as a fully passed matrix. The lifecycle/viewport/decoded-image changes above require a fresh complete run.
 
 ## Tests and acceptance limits
-Automated suites include mocked JSON/HTTP policy, API input validation, Room migration and membership, no-file-write virtual correction, explicit multi-copy and copy-before-move, stale-preview rejection, cache/reanalysis scope, quota pending/resume, Keystore reopen/encryption/delete, and installed Compose Save/Replace/Delete via UI Automator. Existing safety, decoder, original-byte, timestamp, recovery, JVM and Python tests remain.
+Automated suites include mocked JSON/HTTP policy, API input validation, Room migration and membership, no-file-write virtual correction, explicit multi-copy and copy-before-move, stale-preview rejection, cache/reanalysis scope, quota pending/resume, Keystore reopen/encryption/delete, and installed Compose Save/Replace/Delete through actual Compose controls. Existing safety, decoder, original-byte, timestamp, recovery, JVM and Python tests remain.
 CI results and artifact links are recorded after execution; source inspection alone is not a pass.
 The local attachment search found two logo JPEGs only. The ten illustrative evaluation photographs and labeled 36-photo collection are not available to this test process. No semantic accuracy result or improvement is claimed.
 No live user-credential call or physical-device test has been performed. Emulator tests and synthetic fixtures cannot establish actual photographic accuracy, account quota eligibility, physical ARM/OEM behavior or all SAF-provider behavior.

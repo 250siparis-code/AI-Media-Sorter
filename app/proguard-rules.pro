@@ -30,3 +30,13 @@
 # ActivityScenario acceptance crosses the app/test APK boundary using lifecycle state.
 -keep class androidx.lifecycle.Lifecycle { *; }
 -keep class androidx.lifecycle.Lifecycle$* { *; }
+
+# Installed Compose acceptance uses the app-provided UI/runtime contracts across APKs.
+# Material/Foundation/Navigation and unrelated application code remain shrinkable.
+-keep class androidx.compose.runtime.** { *; }
+-keep class androidx.compose.ui.** { *; }
+-keep class androidx.compose.animation.core.InfiniteAnimationPolicy* { *; }
+
+# AndroidComposeTestRule's Activity bound is supplied by the target app.
+-keep class androidx.activity.ComponentActivity { *; }
+-keep class androidx.activity.ComponentActivity$* { *; }
