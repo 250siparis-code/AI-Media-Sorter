@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.Uri
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.*
 import com.aimediasorter.app.data.local.*
@@ -35,7 +36,9 @@ class VirtualGalleryUiTest {
         val db=AppDatabase.getInstance(context)
         val categoryId="qa-ui-"+UUID.randomUUID()
         val sessionId=UUID.randomUUID().toString()
-        var id=0L;var activity: android.app.Activity?=null
+        var id=0L;var scenario: ActivityScenario<MainActivity>?=null
+        val original=photo.readBytes()
+        val ui=InstalledUi(device)
         try {
             db.categoryDao().upsertCategory(CategoryEntity(categoryId,"QA Visual Category","Temporary UI fixture",0,"label",10,
                 destinationSubfolder="QA"))
@@ -51,24 +54,23 @@ class VirtualGalleryUiTest {
             db.virtualGalleryDao().insertLinks(listOf(MediaCategoryLink(id,categoryId,"EFFECTIVE"),MediaCategoryLink(id,categoryId,"PROPOSED")))
             settings.updateSourceUri(root.path)
             instrumentation.uiAutomation.grantRuntimePermission(context.packageName,Manifest.permission.POST_NOTIFICATIONS)
-            activity=instrumentation.startActivitySync(Intent().setClassName(context.packageName,
+            scenario=ActivityScenario.launch<MainActivity>(Intent().setClassName(context.packageName,
                 context.packageName.removeSuffix(".debug")+".MainActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
             device.waitForIdle()
-            val folders=device.wait(Until.findObject(By.text("Virtual folders")),10_000)
-                ?: device.wait(Until.findObject(By.text("Sanal klasörler")),10_000)
-            requireNotNull(folders).click()
-            val card=device.wait(Until.findObject(By.textContains("QA Visual Category")),10_000)
-            requireNotNull(card).click()
-            val thumbnail=device.wait(Until.findObject(By.descContains(photo.name)),10_000)
-            assertNotNull("The gallery must expose the actual media thumbnail.",thumbnail)
-            requireNotNull(thumbnail).click()
-            val full=device.wait(Until.findObject(By.text("View full image")),10_000)
-                ?: device.wait(Until.findObject(By.text("Görseli tam ekran aç")),10_000)
-            requireNotNull(full).click()
-            assertTrue(device.wait(Until.hasObject(By.descContains(photo.name)),10_000))
-            assertTrue(photo.exists());assertTrue(root.listFiles()!!.all { it.name==photo.name })
+            ui.click("nav-folders")
+            ui.click("virtual-folder-"+categoryId,"virtual-gallery")
+            ui.control("virtual-media-"+id,"virtual-gallery")
+            val thumbnail=device.wait(Until.findObject(By.desc(photo.name)),10_000)
+            assertNotNull("The original thumbnail must actually finish decoding.",thumbnail)
+            ui.click("virtual-media-"+id,"virtual-gallery")
+            ui.click("view-full-image","media-review-scroll")
+            val viewer=ui.control("full-media-viewer")
+            assertNotNull("The full-screen original preview must finish decoding.",
+                viewer.wait(Until.findObject(By.desc(photo.name)),10_000))
+            assertArrayEquals(original,photo.readBytes())
+            assertTrue(root.listFiles()!!.all { it.name==photo.name })
         } finally {
-            instrumentation.runOnMainSync { activity?.finish() }
+            scenario?.close()
             settings.updateSourceUri(oldSource)
             if(id!=0L) db.openHelper.writableDatabase.execSQL("DELETE FROM media_items WHERE id=?",arrayOf(id))
             db.categoryDao().deleteCustomCategory(categoryId)

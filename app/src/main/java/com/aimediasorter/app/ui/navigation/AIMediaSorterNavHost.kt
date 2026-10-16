@@ -90,7 +90,11 @@ fun AIMediaSorterNavHost(viewModel: MainViewModel) {
                     Triple(ScreenRoute.Settings,R.string.nav_settings,Icons.Default.Settings)
                 )
                 tabs.forEach { (screen,label,icon) ->
-                    NavigationBarItem(modifier=if(screen==ScreenRoute.Settings) Modifier.testTag("nav-settings") else Modifier,
+                    NavigationBarItem(modifier=when(screen) {
+                            ScreenRoute.Settings -> Modifier.testTag("nav-settings")
+                            ScreenRoute.AnalysisResults -> Modifier.testTag("nav-folders")
+                            else -> Modifier
+                        },
                         selected=currentRoute==screen.route,
                         onClick={navController.navigate(screen.route) { launchSingleTop=true }},
                         icon={Icon(icon,contentDescription=null)},label={Text(stringResource(label),maxLines=1)})

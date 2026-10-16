@@ -1,10 +1,12 @@
+> **Current development phase — PR #5:** Gemini is the only active production classifier. Save your personal API key, load models, verify the selected model with a synthetic image, and explicitly consent to each personal-media batch. Results appear in virtual thumbnail galleries; real Copy/Move needs a separate approved plan. The Offline/Hybrid description below belongs to earlier phases. Follow the [current repair and virtual gallery guide](docs/GEMINI_GALLERY_REPAIR.md) for phone-only steps, test evidence and limitations.
+
 # AI Media Sorter
 
 Requires **Android 14 (API 34) or later**.
 
 Native Android application using Kotlin, Jetpack Compose, Material 3, Room and WorkManager. The UI uses an AMOLED black background and purple accents, with English and Turkish resources.
 
-## Current behavior
+## Earlier offline implementation (inactive in the current phase)
 
 - Discover supported photos and videos in a user-selected SAF directory, optionally including subdirectories.
 - Run the **bundled Google ML Kit image-labeling model locally**. No paid API or model download is needed for Offline mode. The cloud-capable APK declares INTERNET; optional Gemini uploads require explicit per-batch consent.

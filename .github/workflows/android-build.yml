@@ -173,3 +173,4 @@ jobs:
             app/build/reports/native-summary.json
             app/build/outputs/androidTest-results/
             android-test-logcat.txt
+            android-crash-logcat.txt
