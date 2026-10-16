@@ -177,6 +177,22 @@ class VirtualGalleryNativeTest {
         } finally { f.close() }
     }
 
+    @Test fun cancellationBeforeExecutionRevokesAllUnstartedPhysicalSteps()=runBlocking {
+        val f=Fixture(context)
+        try {
+            f.configure();f.analyze();val item=f.item()
+            f.repository.updateVirtualCategories(setOf(item.id),setOf("cat_people","cat_food"),false)
+            val preview=f.repository.previewOperations(setOf(item.id),TransferMethod.MOVE,mapOf(item.id to "cat_people"))
+            f.preferences.updateOperationMode(OperationMode.MOVE_FILES)
+            val ids=f.repository.approveOperationPreview(preview)
+            f.repository.cancelPhysicalPlans()
+            assertTrue(f.database.virtualGalleryDao().plans(ids).all { it.status=="CANCELLED" })
+            try { f.repository.executePhysicalPlans(f.preferences.settingsFlow.first(),ids);fail("Cancelled plan must never execute") }
+            catch(_: IllegalArgumentException) {}
+            assertTrue(f.image.exists());assertTrue(f.destination.listFiles()!!.isEmpty())
+        } finally { f.close() }
+    }
+
     @Test fun staleDecisionsBlockPreviewApprovalAndMultiMoveCopiesBeforeDeletion()=runBlocking {
         val f=Fixture(context)
         try {

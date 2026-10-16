@@ -87,7 +87,7 @@ import com.aimediasorter.app.ui.theme.*
                     Column(Modifier.padding(12.dp)) {
                         Text(media.firstOrNull { it.id==plan.mediaId }?.fileName ?: plan.mediaId.toString())
                         Text(plan.method+" → "+plan.destinationFolder)
-                        Text(plan.status,color=PrimaryPurpleLight)
+                        Text(physicalStatusLabel(plan.status),color=if(plan.status in setOf("RECOVERY_REQUIRED","COMPLETED_TIMESTAMP_WARNING","COMPLETED_SOURCE_RETAINED","CANCEL_REQUESTED")) StatusAmber else PrimaryPurpleLight)
                         if(plan.note.isNotBlank()) Text(plan.note,style=MaterialTheme.typography.bodySmall)
                     }
                 }
@@ -95,3 +95,17 @@ import com.aimediasorter.app.ui.theme.*
         }
     }
 }
+
+@Composable fun physicalStatusLabel(status: String)=stringResource(when(status) {
+    "APPROVED" -> R.string.physical_status_approved
+    "RUNNING" -> R.string.physical_status_running
+    "CANCEL_REQUESTED" -> R.string.physical_status_cancelling
+    "COMPLETED_VERIFIED" -> R.string.physical_status_verified
+    "COMPLETED_TIMESTAMP_WARNING" -> R.string.physical_status_timestamp
+    "COMPLETED_SOURCE_RETAINED" -> R.string.physical_status_retained
+    "RECOVERY_REQUIRED" -> R.string.physical_status_recovery
+    "SKIPPED_COLLISION" -> R.string.physical_status_collision
+    "FAILED" -> R.string.physical_status_failed
+    "CANCELLED" -> R.string.physical_status_cancelled
+    else -> R.string.virtual_pending
+})

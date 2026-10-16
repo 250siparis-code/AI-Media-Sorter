@@ -310,4 +310,14 @@
     <string name="physical_execute">Approve and execute</string>
     <string name="physical_empty">No physical operations approved yet.</string>
     <string name="cloud_interval">Minimum seconds between generation attempts (0–120); Free Tier quotas vary by model</string>
+    <string name="physical_status_approved">Plan approved; waiting</string>
+    <string name="physical_status_running">Operation in progress</string>
+    <string name="physical_status_cancelling">Cancellation requested; inspect before retrying</string>
+    <string name="physical_status_verified">SHA-256 and filesystem modification time verified</string>
+    <string name="physical_status_timestamp">SHA-256 verified; modification time could not be preserved</string>
+    <string name="physical_status_retained">Copy verified; original source retained</string>
+    <string name="physical_status_recovery">Interrupted: inspect source and destination; no automatic retry</string>
+    <string name="physical_status_collision">Existing destination skipped; source retained</string>
+    <string name="physical_status_failed">Operation failed</string>
+    <string name="physical_status_cancelled">Cancelled before this operation started</string>
 </resources>
