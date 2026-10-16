@@ -118,14 +118,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         settingsRepo.updateCloudOptions(options)
     } }
     fun saveGeminiKey(value: String) { launchSafely {
-        workManager.cancelUniqueWork(MediaAnalysisWorker.WORK_NAME)
-        repo.cloud.state.revokeAll()
-        repo.cloud.vault.save(value)
-        refreshCloudLocalState()
+        if (_cloudUi.value.busy) return@launchSafely
+        _cloudUi.value=_cloudUi.value.copy(busy=true,error=null,message=null)
+        try {
+            workManager.cancelUniqueWork(MediaAnalysisWorker.WORK_NAME)
+            repo.cloud.state.revokeAll()
+            repo.cloud.vault.save(value)
+            check(repo.cloud.vault.read()==ApiKeyInput.normalized(value))
+            _cloudUi.value=_cloudUi.value.copy(hasKey=true,models=repo.cloud.state.models(repo.cloud.vault.revision),
+                message="SAVED",savedRevision=_cloudUi.value.savedRevision+1)
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { _cloudUi.value=_cloudUi.value.copy(error="Key could not be saved securely. Check the complete key and try again.") }
+        finally { _cloudUi.value=_cloudUi.value.copy(busy=false) }
     } }
     fun clearGeminiKey() { launchSafely {
-        workManager.cancelUniqueWork(MediaAnalysisWorker.WORK_NAME)
-        repo.cloud.state.revokeAll();repo.cloud.vault.clear();refreshCloudLocalState()
+        if (_cloudUi.value.busy) return@launchSafely
+        _cloudUi.value=_cloudUi.value.copy(busy=true,error=null,message=null)
+        try {
+            workManager.cancelUniqueWork(MediaAnalysisWorker.WORK_NAME)
+            repo.cloud.state.revokeAll();repo.cloud.vault.clear()
+            _cloudUi.value=_cloudUi.value.copy(hasKey=false,models=emptyList(),message="DELETED")
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { _cloudUi.value=_cloudUi.value.copy(error="Key could not be deleted securely. Try again.") }
+        finally { _cloudUi.value=_cloudUi.value.copy(busy=false) }
     } }
     fun refreshGeminiModels() { launchSafely {
         _cloudUi.value = _cloudUi.value.copy(busy=true,error=null)

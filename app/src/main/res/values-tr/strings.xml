@@ -249,4 +249,8 @@
     <string name="cloud_consent_send">Bu grubu gönder</string>
     <string name="cloud_consent_cancel">İptal</string>
     <string name="cloud_score_unavailable">Gemini: sayısal güven puanı yok; inceleme gerekli.</string>
+    <string name="cloud_replace_key">Anahtarı değiştir</string>
+    <string name="cloud_saved_unverified">API anahtarı güvenli kaydedildi. Kimlik doğrulama henüz test edilmedi.</string>
+    <string name="cloud_deleted">API anahtarı silindi.</string>
+    <string name="cloud_connection_ok">Bağlantı başarılı.</string>
 </resources>
