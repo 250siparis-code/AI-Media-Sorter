@@ -29,12 +29,18 @@ class GeminiSettingsUiTest {
         val replacement="AQ."+"ReplacementCredential".repeat(9)
         var activity: android.app.Activity?=null
         fun openSettings() {
-            val settings=device.wait(Until.findObject(By.text("Settings")),10_000)
-                ?: device.wait(Until.findObject(By.text("Ayarlar")),10_000)
-            requireNotNull(settings).click();device.waitForIdle()
+            // A Settings heading can still belong to the closing Activity. Select
+            // the actual navigation action, then wait for the new settings viewport.
+            val navigation=device.wait(Until.findObject(By.res("nav-settings")),10_000)
+            requireNotNull(navigation).click()
+            assertTrue("Settings navigation must open its own scroll viewport.",
+                device.wait(Until.hasObject(By.res("settings-scroll")),10_000)==true)
+            device.waitForIdle()
         }
         fun control(tag: String): UiObject2 {
-            UiScrollable(UiSelector().scrollable(true)).setAsVerticalList()
+            // Scope vertical scrolling to Settings, never a password field's own
+            // horizontal scrollable accessibility node.
+            UiScrollable(UiSelector().resourceId("settings-scroll")).setAsVerticalList()
                 .scrollIntoView(UiSelector().resourceId(tag))
             return requireNotNull(device.wait(Until.findObject(By.res(tag)),10_000)) { "Control unavailable: "+tag }
         }
@@ -82,6 +88,7 @@ class GeminiSettingsUiTest {
             assertFalse("An empty key must disable the Save control.",emptySave.isEnabled)
             saveKey(synthetic)
             assertEquals(synthetic,GeminiKeyVault(context).read())
+            device.pressBack();device.waitForIdle() // Dismiss the first Activity's keyboard before restart.
             instrumentation.runOnMainSync { activity?.finish() }
             activity=instrumentation.startActivitySync(intent);device.waitForIdle();openSettings()
             assertEquals(synthetic,GeminiKeyVault(context).read())

@@ -13,6 +13,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -27,6 +30,7 @@ import com.aimediasorter.app.ui.theme.AmoledPureBlack
 import com.aimediasorter.app.ui.theme.PrimaryPurple
 import com.aimediasorter.app.ui.viewmodel.MainViewModel
 
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun AIMediaSorterNavHost(viewModel: MainViewModel) {
     val navController = rememberNavController()
@@ -73,6 +77,7 @@ fun AIMediaSorterNavHost(viewModel: MainViewModel) {
         }
     }
     Scaffold(
+        modifier=Modifier.semantics { testTagsAsResourceId=true },
         snackbarHost = { SnackbarHost(snackbar) },
         containerColor = AmoledPureBlack,
         bottomBar = {
@@ -85,7 +90,8 @@ fun AIMediaSorterNavHost(viewModel: MainViewModel) {
                     Triple(ScreenRoute.Settings,R.string.nav_settings,Icons.Default.Settings)
                 )
                 tabs.forEach { (screen,label,icon) ->
-                    NavigationBarItem(selected=currentRoute==screen.route,
+                    NavigationBarItem(modifier=if(screen==ScreenRoute.Settings) Modifier.testTag("nav-settings") else Modifier,
+                        selected=currentRoute==screen.route,
                         onClick={navController.navigate(screen.route) { launchSingleTop=true }},
                         icon={Icon(icon,contentDescription=null)},label={Text(stringResource(label),maxLines=1)})
                 }
