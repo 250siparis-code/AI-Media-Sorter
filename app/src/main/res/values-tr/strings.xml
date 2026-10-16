@@ -384,4 +384,6 @@
     <string name="diagnostics_clear_confirm">Saklanan tanı olayları ve analiz raporları silinsin mi? Medya, sınıflandırmalar, API anahtarları ve aktarım kayıtları etkilenmez. Temizlikten sonra yeni olaylar kaydedilebilir.</string>
     <string name="diagnostics_cleared">Tanı kayıtları temizlendi.</string>
     <string name="diagnostics_failure_count">Analiz başarısız: %1$d. Teknik ayrıntılar için son analiz raporunu dışa aktarın.</string>
+    <string name="diagnostics_no_report">Saklanan analiz raporu bulunamadı.</string>
+    <string name="diagnostics_historical">Kaydedilmiş eski sonuçlar mevcut. Önceki sürümler tüm işlem aşamalarını kaydetmedi; bilinmeyen istek sayıları ve süreler bilinmiyor olarak kalır.</string>
 </resources>

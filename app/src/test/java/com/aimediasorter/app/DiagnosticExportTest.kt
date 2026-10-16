@@ -19,7 +19,7 @@ class DiagnosticExportTest {
         val secrets=listOf("AQ.synthetic-private-credential","AIzaSyntheticCredential","Authorization: Bearer private-token",
             "/storage/emulated/0/DCIM/private.jpg","content://media/private-file.jpg","family-secret.jpg","data:image/jpeg;base64,/9j/private-pixels", "{raw provider body}")
         for(secret in secrets) {
-            val safe=DiagnosticPrivacy.sanitize(event(batch).copy(parentId=secret,model=secret,analysisCode=secret))!!
+            val safe=DiagnosticPrivacy.sanitize(event(batch).copy(parentId=secret,sessionId=secret,model=secret,analysisCode=secret))!!
             val raw=DiagnosticPrivacy.json.encodeToString(safe).dropLast(1)+",\"api_key\":\"AQ.otherSecret\",\"filename\":\"personal.jpg\"}"
             val loaded=DiagnosticPrivacy.decode(raw)!!
             for(format in DiagnosticFormat.entries) {
@@ -96,6 +96,24 @@ class DiagnosticExportTest {
     }
     @Test(expected=IllegalArgumentException::class) fun noLastBatchIsNotInvented() {
         DiagnosticExport.prepare(DiagnosticSnapshot(),DiagnosticScope.LAST_ANALYSIS,DiagnosticFormat.JSON,environment)
+    }
+    @Test fun historicalRecordsDoNotInventSentCountsOrMeasuredDurations() {
+        val batch=UUID.randomUUID().toString()
+        val historical=event(batch,stage=DiagnosticStage.LEGACY_SUMMARY).copy(durationKnown=false,
+            analysisCode="UNRECORDED",httpStatus=null,error=DiagnosticError.HISTORICAL_DETAILS_UNAVAILABLE)
+        val summary=historical.copy(correlationId=batch,kind=DiagnosticKind.ANALYSIS_BATCH,stage=DiagnosticStage.BATCH_SUMMARY,
+            metrics=mapOf(DiagnosticMetric.TOTAL_FILES to 1,DiagnosticMetric.FAILED to 1))
+        val snapshot=DiagnosticSnapshot(listOf(summary,historical),listOf(summary))
+        for(format in DiagnosticFormat.entries) {
+            val prepared=DiagnosticExport.prepare(snapshot,DiagnosticScope.LAST_ANALYSIS,format,environment)
+            assertTrue(prepared.text.contains("HISTORICAL_DETAILS_UNAVAILABLE"))
+            if(format==DiagnosticFormat.JSON) {
+                val report=DiagnosticPrivacy.json.decodeFromString<DiagnosticReport>(prepared.text)
+                assertTrue(report.includesHistoricalStoredResults)
+                assertNull(report.files.single().requestsSent);assertNull(report.files.single().elapsedMs)
+                assertEquals(DiagnosticRequestStatus.UNKNOWN,report.files.single().requestStatus)
+            }
+        }
     }
     @Test fun unsafeEnvironmentFieldsAreRedacted() {
         val report=DiagnosticExport.prepare(DiagnosticSnapshot(),DiagnosticScope.ALL_EVENTS,DiagnosticFormat.TXT,

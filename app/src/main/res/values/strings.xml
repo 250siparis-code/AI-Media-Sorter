@@ -384,4 +384,6 @@
     <string name="diagnostics_clear_confirm">Delete retained diagnostic events and analysis reports? Media, classifications, API keys and transfer records are unaffected. New events may be recorded after clearing.</string>
     <string name="diagnostics_cleared">Diagnostic logs cleared.</string>
     <string name="diagnostics_failure_count">Analysis failed: %1$d. Export the last analysis report for technical details.</string>
+    <string name="diagnostics_no_report">No retained analysis report is available.</string>
+    <string name="diagnostics_historical">Historical saved results are available. Previous versions did not record all execution stages; unknown request counts and durations remain unknown.</string>
 </resources>

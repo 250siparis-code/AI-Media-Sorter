@@ -234,7 +234,7 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
             var uncertain = 0
             var failed = 0
             var pending = 0
-            diagnostic.event(DiagnosticStage.BATCH_SUMMARY,DiagnosticStatus.STARTED,metrics=summaryMetrics(session,selectedIds.size))
+            diagnostic.event(DiagnosticStage.BATCH_SUMMARY,DiagnosticStatus.STARTED,metrics=summaryMetrics(session,selectedIds.size),sessionId=session.sessionId)
             try {
                 storageScanner.scanCandidates(settings.sourceUri, "",
                     settings.includeSubfolders, settings.mediaTypeFilter, settings.enabledExtensions) {
@@ -391,7 +391,7 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                     },code=AnalysisCode.safely(currentRow?.diagnosticCode.orEmpty()),http=currentRow?.responseHttpStatus?.takeIf { it>0 },
                         metrics=mapOf(DiagnosticMetric.REQUESTS_SENT to (currentRow?.apiRequestsSent ?: 0).toLong(),
                             DiagnosticMetric.RESERVATIONS to (currentRow?.requestReservations ?: 0).toLong()))
-                    diagnostic.event(DiagnosticStage.BATCH_SUMMARY,DiagnosticStatus.STARTED,metrics=summaryMetrics(session,if(selectedIds.isNotEmpty()) selectedIds.size else session.totalScanned))
+                    diagnostic.event(DiagnosticStage.BATCH_SUMMARY,DiagnosticStatus.STARTED,metrics=summaryMetrics(session,if(selectedIds.isNotEmpty()) selectedIds.size else session.totalScanned),sessionId=session.sessionId)
                     val currentCategory = db.mediaItemDao().getByUri(candidate.uri.toString())?.effectiveCategoryName.orEmpty()
                     _analysisProgress.update { it.copy(processedFiles = processed, skippedUnchangedCount = skipped,
                         currentDetectedCategory = currentCategory,currentDiagnosticCode=currentRow?.diagnosticCode.orEmpty(),
@@ -403,15 +403,15 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                 _analysisProgress.update { it.copy(totalFiles=processed) }
                 session = session.copy(completedAtMs = System.currentTimeMillis(), totalScanned = processed, status = "COMPLETED")
                 db.analysisSessionDao().upsertSession(session)
-                diagnostic.event(DiagnosticStage.BATCH_SUMMARY,DiagnosticStatus.SUCCEEDED,metrics=summaryMetrics(session,if(selectedIds.isNotEmpty()) selectedIds.size else session.totalScanned))
+                diagnostic.event(DiagnosticStage.BATCH_SUMMARY,DiagnosticStatus.SUCCEEDED,metrics=summaryMetrics(session,if(selectedIds.isNotEmpty()) selectedIds.size else session.totalScanned),sessionId=session.sessionId)
             } catch (cancelled: CancellationException) {
                 withContext(NonCancellable) { db.analysisSessionDao().upsertSession(session.copy(status = "CANCELLED")) }
-                diagnostic.event(DiagnosticStage.BATCH_SUMMARY,DiagnosticStatus.CANCELLED,metrics=summaryMetrics(session,if(selectedIds.isNotEmpty()) selectedIds.size else session.totalScanned))
+                diagnostic.event(DiagnosticStage.BATCH_SUMMARY,DiagnosticStatus.CANCELLED,metrics=summaryMetrics(session,if(selectedIds.isNotEmpty()) selectedIds.size else session.totalScanned),sessionId=session.sessionId)
                 _analysisProgress.update { it.copy(errorMessage = "CANCELLED") }
                 throw cancelled
             } catch (error: Exception) {
                 db.analysisSessionDao().upsertSession(session.copy(status = "FAILED"))
-                diagnostic.event(DiagnosticStage.BATCH_SUMMARY,DiagnosticStatus.FAILED,metrics=summaryMetrics(session,if(selectedIds.isNotEmpty()) selectedIds.size else session.totalScanned))
+                diagnostic.event(DiagnosticStage.BATCH_SUMMARY,DiagnosticStatus.FAILED,metrics=summaryMetrics(session,if(selectedIds.isNotEmpty()) selectedIds.size else session.totalScanned),sessionId=session.sessionId)
                 _analysisProgress.update { it.copy(errorMessage = when(error) {
                     is CloudFailure->error.diagnostic.message
                     is SecurityException->AnalysisCode.LOCAL_SOURCE_ACCESS.message
@@ -421,6 +421,46 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
             } finally {
                 _analysisProgress.update { it.copy(isRunning = false, isPaused = false, isDiscovering = false) }
             }
+        }
+    }
+
+    /** Export-only fallback for pre-logger installations. Reads saved results, never original media. */
+    suspend fun storedAnalysisDiagnostics(afterClearMs: Long=0L,recordedSessionIds: Set<String> = emptySet()): Pair<String,DiagnosticSnapshot>? = withContext(Dispatchers.IO) {
+        db.withTransaction {
+            val session=db.analysisSessionDao().latest() ?: return@withTransaction null
+            if(session.startedAtMs<=afterClearMs || session.sessionId in recordedSessionIds) return@withTransaction null
+            val batch=DiagnosticPrivacy.id(session.sessionId) ?: UUID.nameUUIDFromBytes(session.sessionId.toByteArray(Charsets.UTF_8)).toString()
+            // Unselected/cached rows may share a scan ID without a fresh analysis. Their old
+            // execution cannot be reconstructed, so do not pretend they were analyzed in this batch.
+            val items=db.mediaItemDao().getCurrentMediaItems(session.sourceUri)
+                .filter { it.scanSessionId==session.sessionId && it.analyzedAtMs>=session.startedAtMs }
+            val files=items.map { item ->
+                val status=when(item.analysisStatus) {
+                    "FAILED"->DiagnosticStatus.FAILED;"PENDING"->DiagnosticStatus.PENDING
+                    else->if(item.needsManualReview) DiagnosticStatus.NEEDS_REVIEW else DiagnosticStatus.SUCCEEDED
+                }
+                DiagnosticEvent(item.analyzedAtMs,UUID.nameUUIDFromBytes((batch+":"+item.id).toByteArray(Charsets.UTF_8)).toString(),
+                    parentId=batch,batchId=batch,kind=DiagnosticKind.MEDIA_ANALYSIS,stage=DiagnosticStage.LEGACY_SUMMARY,status=status,
+                    error=DiagnosticError.HISTORICAL_DETAILS_UNAVAILABLE,analysisCode=AnalysisCode.safely(item.diagnosticCode).name,
+                    httpStatus=item.responseHttpStatus.takeIf { it in 100..599 },model=DiagnosticPrivacy.model(item.analysisModel),
+                    metrics=buildMap {
+                        if(item.apiRequestsSent>=0) put(DiagnosticMetric.REQUESTS_SENT,item.apiRequestsSent.toLong())
+                        if(item.requestReservations>=0) put(DiagnosticMetric.RESERVATIONS,item.requestReservations.toLong())
+                    },sessionId=batch,durationKnown=false)
+            }
+            val summary=DiagnosticEvent(session.completedAtMs ?: session.startedAtMs,batch,batchId=batch,
+                kind=DiagnosticKind.ANALYSIS_BATCH,stage=DiagnosticStage.BATCH_SUMMARY,
+                status=when(session.status) { "COMPLETED"->DiagnosticStatus.SUCCEEDED;"FAILED"->DiagnosticStatus.FAILED;"CANCELLED"->DiagnosticStatus.CANCELLED;else->DiagnosticStatus.PENDING },
+                model=files.mapNotNull { it.model }.distinct().singleOrNull(),error=DiagnosticError.HISTORICAL_DETAILS_UNAVAILABLE,
+                metrics=buildMap {
+                    if(session.totalScanned>=0) put(DiagnosticMetric.TOTAL_FILES,session.totalScanned.toLong())
+                    if(session.successfulCount>=0) put(DiagnosticMetric.SUCCESSFUL,session.successfulCount.toLong())
+                    if(session.uncertainCount>=0) put(DiagnosticMetric.NEEDS_REVIEW,session.uncertainCount.toLong())
+                    if(session.failedCount>=0) put(DiagnosticMetric.FAILED,session.failedCount.toLong())
+                    if(session.pendingCount>=0) put(DiagnosticMetric.PENDING,session.pendingCount.toLong())
+                    if(session.apiRequestsSent>=0) put(DiagnosticMetric.REQUESTS_SENT,session.apiRequestsSent.toLong())
+                },sessionId=batch,durationKnown=false)
+            session.sessionId to DiagnosticSnapshot((files+summary).sortedByDescending { it.timestampMs },listOf(summary))
         }
     }
 
