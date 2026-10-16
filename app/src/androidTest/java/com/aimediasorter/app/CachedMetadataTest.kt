@@ -36,10 +36,12 @@ class CachedMetadataTest {
             repository.executeMediaScanAndAnalysis(settings)
             val first = database.mediaItemDao().getCurrentMediaItems(folder.path).single()
             assertEquals(before, first.originalLastModifiedMs)
-            // Simulate a prior verified COPY result; cached timestamp claims must become stale after touch.
+            // Simulate a prior manual approval and verified COPY. A failed Gemini row is not a reusable analysis.
+            // Cached filesystem timestamp claims must become stale after touch.
             database.mediaItemDao().updateMediaItem(first.copy(
                 transferStatus = com.aimediasorter.app.data.model.TransferItemStatus.COMPLETED_VERIFIED.name,
-                isManuallyCorrected = true, timestampVerified = true, destinationUriString = Uri.fromFile(file).toString()))
+                isManuallyCorrected = true, analysisStatus = "APPROVED",
+                timestampVerified = true, destinationUriString = Uri.fromFile(file).toString()))
             check(file.setLastModified(after))
             repository.executeMediaScanAndAnalysis(settings)
             val second = database.mediaItemDao().getCurrentMediaItems(folder.path).single()

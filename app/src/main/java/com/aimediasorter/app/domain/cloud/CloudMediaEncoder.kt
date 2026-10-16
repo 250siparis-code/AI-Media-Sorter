@@ -43,9 +43,10 @@ class CloudMediaEncoder(private val context: Context) {
                 BitmapFactory.Options().apply { inSampleSize=sample;inPreferredConfig=Bitmap.Config.ARGB_8888 }) }
                 ?: throw CloudFailure(CloudErrorKind.RESPONSE,AnalysisCode.LOCAL_IMAGE_DECODE)
             val exif=runCatching { access.input(uri).use { ExifInterface(it) } }.getOrNull()
-            val hasOrientation=exif?.hasAttribute(ExifInterface.TAG_ORIENTATION)==true
-            val rotation=if(hasOrientation) exif!!.rotationDegrees else orientation
-            val flipped=if(hasOrientation) exif!!.isFlipped else mirrored
+            // Preserve explicitly inspected orientation; selected EXIF supplies metadata when
+            // strict original access could not inspect it. Some decoders synthesize normal EXIF.
+            val rotation=if(orientation!=0) orientation else exif?.rotationDegrees ?: 0
+            val flipped=mirrored || exif?.isFlipped==true
             var oriented: Bitmap?=null
             var scaled: Bitmap?=null
             return try {
