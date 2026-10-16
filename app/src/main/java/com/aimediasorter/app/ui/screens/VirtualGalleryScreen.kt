@@ -65,7 +65,7 @@ import com.aimediasorter.app.ui.theme.*
         links.filter { it.origin=="EFFECTIVE" && it.mediaId in currentIds }.groupBy { it.categoryId }.mapValues { (_,v)->v.map { it.mediaId }.toSet() }
     }
     val byId=remember(media) { media.associateBy { it.id } }
-    val review=remember(media) { media.filter { it.needsManualReview && it.analysisStatus!="FAILED" } }
+    val review=remember(media) { media.filter { it.needsManualReview && it.analysisStatus !in setOf("FAILED","PENDING") } }
     val failed=remember(media) { media.filter { it.analysisStatus=="FAILED" } }
     val pending=remember(media) { media.filter { it.analysisStatus=="PENDING" } }
     val visible=remember(media,folder,membership) { when(folder) {

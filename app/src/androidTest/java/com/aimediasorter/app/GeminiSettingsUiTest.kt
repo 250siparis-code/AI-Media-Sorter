@@ -41,7 +41,7 @@ class GeminiSettingsUiTest {
             device.waitForIdle()
             assertTrue("AQ. must enable Save without a selected model.",save.isEnabled)
             save.click();device.waitForIdle()
-            device.wait(Until.hasObject(By.textMatches("An encrypted key.*|Şifrelenmiş anahtar.*")),10_000)
+            device.wait(Until.hasObject(By.text(java.util.regex.Pattern.compile("An encrypted key.*|Şifrelenmiş anahtar.*"))),10_000)
             assertEquals(synthetic,GeminiKeyVault(context).read())
             instrumentation.runOnMainSync { activity?.finish() }
             activity=instrumentation.startActivitySync(intent)
@@ -53,7 +53,7 @@ class GeminiSettingsUiTest {
             assertEquals(synthetic,GeminiKeyVault(context).read())
             val remove=device.findObject(UiSelector().textMatches("Remove key|Anahtarı kaldır"))
             assertTrue(remove.isEnabled);remove.click();device.waitForIdle()
-            device.wait(Until.hasObject(By.textMatches("No API key saved.*|Kayıtlı API anahtarı yok.*")),10_000)
+            device.wait(Until.hasObject(By.text(java.util.regex.Pattern.compile("No API key saved.*|Kayıtlı API anahtarı yok.*"))),10_000)
             assertFalse(vault.hasKey())
         } finally {
             instrumentation.runOnMainSync { activity?.finish() }

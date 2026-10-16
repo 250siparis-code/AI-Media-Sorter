@@ -28,6 +28,7 @@ data class CloudUiState(val hasKey: Boolean=false,val models: List<String> = emp
     var maxRequests by remember(o.maxRequests) { mutableStateOf(o.maxRequests.toString()) }
     var daily by remember(o.maxDailyRequests) { mutableStateOf(o.maxDailyRequests.toString()) }
     var tokens by remember(o.maxOutputTokens) { mutableStateOf(o.maxOutputTokens.toString()) }
+    var interval by remember(o.minimumIntervalSeconds) { mutableStateOf(o.minimumIntervalSeconds.toString()) }
     var retries by remember(o.retries) { mutableStateOf(o.retries.toString()) }
     fun dollars(micros: Long)=BigDecimal.valueOf(micros,6).stripTrailingZeros().toPlainString()
     var perAttempt by remember(o.estimatedMicrosPerAttempt) { mutableStateOf(dollars(o.estimatedMicrosPerAttempt)) }
@@ -51,7 +52,7 @@ data class CloudUiState(val hasKey: Boolean=false,val models: List<String> = emp
                 singleLine=true,modifier=Modifier.fillMaxWidth())
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                 Button(enabled=ApiKeyInput.canSave(key)&&!state.busy,onClick={onSaveKey(ApiKeyInput.normalized(key))}) { Text(stringResource(if(state.hasKey) R.string.cloud_replace_key else R.string.cloud_save_key)) }
-                OutlinedButton(enabled=state.hasKey,onClick={key="";onClearKey()}) { Text(stringResource(R.string.cloud_clear_key)) }
+                OutlinedButton(enabled=state.hasKey&&!state.busy,onClick={key="";onClearKey()}) { Text(stringResource(R.string.cloud_clear_key)) }
             }
             Text(stringResource(if(state.hasKey) R.string.cloud_key_saved else R.string.cloud_key_missing))
             state.failure?.let { Text(cloudFailureText(it),color=MaterialTheme.colorScheme.error) }
@@ -78,6 +79,7 @@ data class CloudUiState(val hasKey: Boolean=false,val models: List<String> = emp
             OutlinedTextField(maxRequests,{maxRequests=it},label={Text(stringResource(R.string.cloud_max_requests))},singleLine=true)
             OutlinedTextField(daily,{daily=it},label={Text(stringResource(R.string.cloud_daily_requests))},singleLine=true)
             OutlinedTextField(tokens,{tokens=it},label={Text(stringResource(R.string.cloud_output_tokens))},singleLine=true)
+            OutlinedTextField(interval,{interval=it},label={Text(stringResource(R.string.cloud_interval))},singleLine=true)
             OutlinedTextField(retries,{retries=it},label={Text(stringResource(R.string.cloud_retries))},singleLine=true)
             OutlinedTextField(perAttempt,{perAttempt=it},label={Text(stringResource(R.string.cloud_per_attempt))},singleLine=true)
             OutlinedTextField(batch,{batch=it},label={Text(stringResource(R.string.cloud_batch_budget))},singleLine=true)
@@ -86,7 +88,7 @@ data class CloudUiState(val hasKey: Boolean=false,val models: List<String> = emp
                 try {
                     fun micros(v: String)=BigDecimal(v.replace(',','.')).movePointRight(6).longValueExact()
                     val next=o.copy(maxRequests=maxRequests.toInt(),maxDailyRequests=daily.toInt(),
-                        maxOutputTokens=tokens.toInt(),retries=retries.toInt(),
+                        maxOutputTokens=tokens.toInt(),retries=retries.toInt(),minimumIntervalSeconds=interval.toInt(),
                         estimatedMicrosPerAttempt=micros(perAttempt),maxEstimatedBatchMicros=micros(batch))
                     next.validate();onOptions(next);invalid=false
                 } catch(_: Exception) { invalid=true }

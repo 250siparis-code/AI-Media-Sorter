@@ -309,4 +309,5 @@
     <string name="physical_confirm_checkbox">Bu fiziksel Kopyala/Taşı işlemlerini açıkça onaylıyorum.</string>
     <string name="physical_execute">Onayla ve uygula</string>
     <string name="physical_empty">Henüz onaylanmış fiziksel işlem yok.</string>
+    <string name="cloud_interval">Üretim denemeleri arası en az saniye (0–120); ücretsiz kota modele göre değişir</string>
 </resources>

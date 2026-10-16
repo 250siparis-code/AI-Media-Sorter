@@ -1,3 +1,7 @@
+# Current development phase
+
+Gemini is now the only active production classifier on `codex/gemini-gallery-repair` (PR #5). The previous Offline/Hybrid workflow below is historical. Follow [Gemini repair and virtual gallery guide](GEMINI_GALLERY_REPAIR.md) for current key saving, connection/model verification, upload consent, virtual folders, explicit physical operation plans, tests and acceptance limits.
+
 # Optional Gemini BYOK engine
 
 Status: implementation under review. Automated tests use mocks and isolated synthetic media. No live Google API request or comparative accuracy evaluation has been completed by the reviewer.
