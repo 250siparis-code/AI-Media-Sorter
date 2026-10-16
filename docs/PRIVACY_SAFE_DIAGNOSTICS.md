@@ -45,7 +45,7 @@ No real Gemini batch or physical-device test is performed by this change. Events
 
 The prior independent API 35 / 16 KB / R8 test instability (DataStore/ART failures documented in REAL_PHOTO_PIPELINE_REPAIR.md) remains an open risk until separately verified/root-caused; it must not be hidden by rerunning to green or disabling tests.
 
-Final executed test counts, workflow links and APK measurements will be appended after CI completes.
+Final executed test counts, workflow links and APK measurements appear in **Final executed verification** below. The exact historical cause and request count for each of the user's 36 failures remain unverified: the old APK did not retain those stages. The earlier reproduced pipeline defects are documented in [REAL_PHOTO_PIPELINE_REPAIR.md](REAL_PHOTO_PIPELINE_REPAIR.md); this diagnostic change does not claim that missing historical evidence has been recovered.
 
 ### Local verification at 693f8e16c2c130e0290be1c30585b67a00bebc74
 
@@ -108,3 +108,56 @@ QA builds use debug signing, not production signing. Upgrade-signature compatibi
 String validation failures include a finite violation tag (STRING_REQUIRED, EMPTY_NOT_ALLOWED, STRING_TOO_LONG, CONTROL_CHARACTER) plus the measured Kotlin/UTF-16 length and allowed limit when a string exists. The corresponding field tag (for example SUBJECT_DESCRIPTION or REASON) is retained. No offending text is recorded. The validation acceptance rules are unchanged; this separates causes that otherwise share RESPONSE_SCHEMA.
 
 At 41b30e5 the primary push workflow 38973340219 passed the full five-profile matrix and build. The independent PR workflow 38973345810 passed four profiles/build but failed API35/16KB/release in virtualFolderOpensRealThumbnailAndFullScreenPreview: SIGSEGV with PC zero through JIT-compiled AndroidComposeView constructor/Wrapper_androidKt.setContent. This is another unroot-caused 16 KB runtime failure, not a passing test or an established environment-only cause. It remains part of the HIGH issue above.
+
+## Final executed verification
+
+Application/test commit: **39ce39d83d972922d2a4f6797626e7d655d9dbec** (version 1.1.2-private-diagnostics, build 5; diagnostic JSON schema 2, diagnostic SQLite schema 2).
+
+[Final successful PR workflow 38975109531](https://github.com/250siparis-code/AI-Media-Sorter/actions/runs/38975109531) completed all six jobs successfully:
+
+| Check | Actual result |
+|---|---|
+| Clean build / JVM | 59 tests, 0 failures, 0 errors, 0 skipped |
+| Python transfer executor | 20 tests passed |
+| Static checks / packaging | lintDebug, debug and instrumentation compilation, R8/resource-shrunk ARM64/ARMv7 release QA builds passed |
+| API34, debug, 4 KB | 67 tests: 66 passed, 1 optional live test skipped |
+| API34, R8 release QA, 4 KB | 67 tests: 66 passed, 1 optional live test skipped |
+| API35, debug, 4 KB | 67 tests: 66 passed, 1 optional live test skipped |
+| API35, debug, 16 KB | 67 tests: 66 passed, 1 optional live test skipped |
+| API35, R8 release QA, 16 KB | 67 tests: 66 passed, 1 optional live test skipped |
+
+The optional live-upload test was skipped because explicit live configuration/consent was absent. The real JPEG/SAF tests use isolated fixtures and mocked responses. These are pipeline, persistence, UI, privacy and safety tests, not measured Gemini visual accuracy.
+
+Independent [push workflow 38975103683](https://github.com/250siparis-code/AI-Media-Sorter/actions/runs/38975103683), on the same application commit, passed the build and four native profiles but **failed API35/16KB/debug**. The app process terminated after six reported tests with NullPointerException in java.lang.ref.ReferenceQueue.enqueuePending / ReferenceQueueDaemon during independentVaultInstancesCannotRaceReadWithReplacement. This was a process/runtime crash, not a successful assertion. No targeted rerun was requested. Together with the earlier NterpGetStaticField and Compose JIT crashes, this leaves the 16 KB runtime stability issue HIGH and unresolved. A successful complete PR run does not close that issue or establish physical-device reliability.
+
+Local JDK17 verification also passed 59 JVM tests, lint/debug/instrumentation compilation, plus the current ARM64 R8 release and release-test APK assembly. The local machine has no /dev/kvm; native execution evidence comes from the workflows above. No actual Gemini batch or physical-device test was performed, and no user's media archive was used.
+
+### Downloadable artifacts
+
+All links below are from the successful final PR run and contain the tested application commit. Sizes are the actual APK sizes, not the enclosing artifact ZIP sizes.
+
+| APK | Bytes | MiB | Artifact |
+|---|---:|---:|---|
+| optimized-arm64-v8a-debug.apk | 36,095,197 | 34.423062 | [Download](https://github.com/250siparis-code/AI-Media-Sorter/actions/runs/38975109531/artifacts/12079281646) |
+| optimized-arm64-v8a-release-QA.apk | 19,612,537 | 18.703973 | [Download](https://github.com/250siparis-code/AI-Media-Sorter/actions/runs/38975109531/artifacts/12079416174) |
+| optimized-armeabi-v7a-debug.apk | 34,451,015 | 32.855048 | [Download](https://github.com/250siparis-code/AI-Media-Sorter/actions/runs/38975109531/artifacts/12079281646) |
+| optimized-armeabi-v7a-release-QA.apk | 18,268,319 | 17.422027 | [Download](https://github.com/250siparis-code/AI-Media-Sorter/actions/runs/38975109531/artifacts/12079266667) |
+
+[Verification reports](https://github.com/250siparis-code/AI-Media-Sorter/actions/runs/38975109531/artifacts/12079236821) contain size, manifest, signature, model-asset and ELF inspections. [All four APKs](https://github.com/250siparis-code/AI-Media-Sorter/actions/runs/38975109531/artifacts/12078833688) are also available together. No universal build was added.
+
+All inspected manifests declare minSdk34/targetSdk35; compileSdk35 remains configured. APK signature/ZIP checks passed. Every ARM64 native library passes the 16 KB ELF check. ARMv7 is offered for 4 KB compatibility; its native libraries are not represented as verified for 16 KB. The three bundled offline/diagnostic model assets retain their original SHA-256 values. No model was removed or replaced with an internet download.
+
+APK SHA-256:
+
+- `optimized-arm64-v8a-debug.apk`: `6546b4939546781234c22d81f5c00b37de633c6f3a9d98f66eaa88d92cca9bf2`
+- `optimized-arm64-v8a-release-QA.apk`: `62ad525cf72ab5d35658f4724f1c827b3f34038df675144861f8e43fdbba984c`
+- `optimized-armeabi-v7a-debug.apk`: `097607884fb6dc59bc4bf61cee29167eecfc8644174bfb7284f24672af3e42cb`
+- `optimized-armeabi-v7a-release-QA.apk`: `2dbcea1612712ad5a0cabf804e2912e8caea4222604860989ce7aa6fa86247dd`
+
+The previous photo-repair ARM64 QA APK was 19,530,721 bytes; the diagnostic build is 19,612,537 bytes, an increase of 81,816 bytes (about 0.42%). The logger was added without weakening R8 or removing a feature.
+
+The Gemini request builder and OriginalMediaAccess, VerifiedTransferEngine, SafeFileMover, LocalTransferStorage and ExifAndTimestampManager were compared byte-for-byte with the reviewed 3bfdc89 base and remain unchanged. Timestamp reporting, SHA-256 verification, original-byte requirements, explicit plan approvals and safe source-retention behavior remain in place.
+
+Reports expose configured output-token/request/retry/pacing limits. Parsed token usage follows the existing CloudResponse accounting, which defaults absent usage counters to zero; zero does not prove zero provider billing. Request/body-sent counters and budget reservations remain distinct.
+
+The PR remains draft and unmerged. These are debug-signed QA APKs, not production releases. Existing-installation signing compatibility is unverified. Retain the existing installation and its private results/key/grants; historical export depends on a compatible, data-preserving update. Physical-device acceptance, live 36-photo evaluation and resolution of the 16 KB runtime crashes remain outstanding.
