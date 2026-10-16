@@ -14,13 +14,13 @@
     <string name="nav_settings">Ayarlar</string>
 
     <!-- Screen 1: Welcome / Home -->
-    <string name="welcome_badge">ÇEVRİMDIŞI CİHAZ İÇİ İŞ AKIŞI</string>
+    <string name="welcome_badge">GEMINI ANALİZİ · SANAL İNCELEME</string>
     <string name="welcome_title">AI Media Sorter</string>
-    <string name="welcome_description">Fotoğraf ve videolarınızı cihaz üzerinde analiz edin, sonuçları inceleyin ve dosyaları değiştirmeden Termux uyumlu betikler/manifestolar dışa aktarın veya güvenle klasörlere taşıyın.</string>
-    <string name="feature_ai_title">Cihaz İçi Görsel Sınıflandırma</string>
-    <string name="feature_ai_desc">Gerçek ML Kit görüntü etiketleme işlemi cihazda çalışır. Belirsiz ve tanılama sonuçları inceleme gerektirir; puanlar ölçülmüş doğruluk oranı değildir.</string>
-    <string name="feature_folders_title">Termux Betik ve Manifesto Dışa Aktarımı</string>
-    <string name="feature_folders_desc">Varsayılan dry-run korumalı, SHA-256 doğrulamalı ve POSIX kaçışlı classification_report.csv, file_operations.json, move_files.sh ve copy_files.sh üretir.</string>
+    <string name="welcome_description">Seçili fotoğraflar ve örnek video kareleri, açık yükleme onayınızdan sonra Gemini ile analiz edilir. Fiziksel Kopyala veya Taşı işlemini onaylamadan önce sonuçları sanal galerilerde inceleyip düzeltin.</string>
+    <string name="feature_ai_title">Gemini Görsel Analizi</string>
+    <string name="feature_ai_desc">Kendi Gemini API anahtarınızı ve seçtiğiniz modeli kullanır. Çevrimdışı yedek motor ve uydurma güven puanı yoktur. API hataları görünür; yeniden denenebilir.</string>
+    <string name="feature_folders_title">Sanal Galeriler ve İnceleme</string>
+    <string name="feature_folders_desc">Gerçek küçük resimleri birden çok sanal kategoride görüntüleyin, önemli özneleri inceleyin ve orijinal dosyaları değiştirmeden kategorileri düzeltin.</string>
     <string name="feature_preserve_title">Zaman Damgası ve Birebir Kalite Koruma</string>
     <string name="feature_preserve_desc">Medya baytlarını değiştirmeden kopyalar ve hedefi yeniden okuyarak SHA-256 ile doğrular. Değişiklik zamanı doğrulanamazsa varsayılan ilke özgün dosyaları korur.</string>
     <string name="welcome_mode_label">Aktif Çalışma Modu</string>
@@ -53,16 +53,16 @@
 
     <!-- Screen 3: Category Management -->
     <string name="categories_title">Kategori Yönetimi</string>
-    <string name="categories_subtitle">Kategorileri etkinleştirin, görsel açıklamaları düzenleyin, öncelik sırasını ve hedef klasörleri ayarlayın.</string>
+    <string name="categories_subtitle">Kategorileri etkinleştirin, açıklamaları ve sanal galeri sırasını düzenleyin veya ayrıca onaylanacak fiziksel işlemler için klasörleri ayarlayın.</string>
     <string name="btn_add_category">Yeni Kategori Ekle</string>
-    <string name="category_priority_fmt">Öncelik: %1$d</string>
+    <string name="category_priority_fmt">Liste sırası: %1$d</string>
     <string name="category_subfolder_fmt">Hedef Alt Klasör: /%1$s</string>
     <string name="dialog_add_category_title">Yeni Medya Kategorisi</string>
     <string name="dialog_edit_category_title">Kategoriyi Düzenle</string>
     <string name="field_category_name">Kategori Adı</string>
     <string name="field_category_desc">Görsel İçerik Anahtar Kelimeleri / Açıklama</string>
     <string name="field_category_folder">Hedef Alt Klasör Adı</string>
-    <string name="field_category_priority">Özne Önceliği (1 = Düşük, 10 = Yüksek)</string>
+    <string name="field_category_priority">Liste sırası (1–10); Gemini analizine üstünlük vermez</string>
     <string name="btn_save">Kaydet</string>
     <string name="btn_cancel">İptal</string>
     <string name="btn_delete">Sil</string>
