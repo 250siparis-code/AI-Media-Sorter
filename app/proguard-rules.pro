@@ -28,8 +28,7 @@
 -keep class androidx.datastore.** { *; }
 
 # ActivityScenario acceptance crosses the app/test APK boundary using lifecycle state.
--keep class androidx.lifecycle.Lifecycle { *; }
--keep class androidx.lifecycle.Lifecycle$* { *; }
+-keep class androidx.lifecycle.** { *; }
 
 # Installed Compose acceptance uses the app-provided UI/runtime contracts across APKs.
 # Material/Foundation/Navigation and unrelated application code remain shrinkable.
