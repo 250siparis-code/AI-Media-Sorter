@@ -9,6 +9,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.aimediasorter.app.data.diagnostics.*
 import com.aimediasorter.app.domain.diagnostics.*
 import kotlinx.coroutines.*
+import kotlinx.serialization.encodeToString
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -36,15 +37,29 @@ class DiagnosticLogNativeTest {
             assertEquals("unchanged",sentinel.readText())
         } finally { log.close();context.deleteDatabase(name);sentinel.delete() }
     }
+    @Test fun versionOneDiagnosticStoreMigratesWithoutLosingEvents()=runBlocking {
+        val name=name();val old=event(UUID.randomUUID().toString())
+        context.openOrCreateDatabase(name,0,null).use { db ->
+            db.execSQL("CREATE TABLE events(seq INTEGER PRIMARY KEY,ts INTEGER NOT NULL,payload TEXT NOT NULL)")
+            db.execSQL("CREATE TABLE summaries(batch TEXT PRIMARY KEY,ts INTEGER NOT NULL,payload TEXT NOT NULL)")
+            db.execSQL("INSERT INTO events(ts,payload) VALUES(?,?)",arrayOf(old.timestampMs,DiagnosticPrivacy.json.encodeToString(old)))
+            db.version=1
+        }
+        val log=DiagnosticLog(context,name)
+        try {
+            log.record(event(old.batchId!!))
+            assertTrue(log.snapshot().events.any { it.correlationId==old.correlationId })
+        } finally { log.close();context.deleteDatabase(name) }
+    }
     @Test fun expiredEventsAndSummariesAreRemovedAndDatabaseStaysWithinByteCap()=runBlocking {
         val name=name();val cap=262_144L;val log=DiagnosticLog(context,name,maxBytes=cap)
         try {
             val batch=UUID.randomUUID().toString()
             log.record(event(batch,time=1).copy(stage=DiagnosticStage.BATCH_SUMMARY,kind=DiagnosticKind.ANALYSIS_BATCH))
-            repeat(100) { log.record(event(batch)) }
+            repeat(200) { log.record(event(batch)) }
             val snapshot=log.snapshot()
             assertFalse(snapshot.events.any { it.timestampMs==1L });assertTrue(snapshot.summaries.isEmpty())
-            assertTrue(snapshot.events.size<100);assertTrue(context.getDatabasePath(name).length()<=cap)
+            assertTrue(snapshot.events.size<200);assertTrue(context.getDatabasePath(name).length()<=cap)
         } finally { log.close();context.deleteDatabase(name) }
     }
     @Test fun corruptedDiagnosticDatabaseDoesNotMakeRecordThrowOrBlockAnalysisCaller()=runBlocking {

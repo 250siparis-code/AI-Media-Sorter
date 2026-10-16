@@ -46,13 +46,12 @@ class RealPhotoDiagnosticsTest {
     @Test fun realJpegDiagnosticReportKeepsExactFailureStageAndAnonymizesOriginal()=runBlocking {
         val fixture=Fixture(context,instrumentation.context)
         try {
-            (context.applicationContext as AIMediaSorterApp).diagnostics.snapshot()
+            com.aimediasorter.app.data.diagnostics.Diagnostics.initialize(context).snapshot()
             fixture.configure()
             val before=fixture.photo.readBytes()
             fixture.reply="""{"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":"AQ.untrusted-invalid-json"}]}}]}"""
             val batch=fixture.analyze()
-            val app=context.applicationContext as AIMediaSorterApp
-            val snapshot=app.diagnostics.snapshot()
+            val snapshot=com.aimediasorter.app.data.diagnostics.Diagnostics.initialize(context).snapshot()
             val prepared=com.aimediasorter.app.domain.diagnostics.DiagnosticExport.prepare(snapshot,
                 com.aimediasorter.app.domain.diagnostics.DiagnosticScope.LAST_ANALYSIS,
                 com.aimediasorter.app.domain.diagnostics.DiagnosticFormat.JSON,

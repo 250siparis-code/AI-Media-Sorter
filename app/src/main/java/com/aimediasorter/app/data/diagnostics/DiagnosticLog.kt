@@ -118,13 +118,18 @@ class DiagnosticLog(context: Context,databaseName: String="diagnostics.db",
     }
     suspend fun close() { queue.close();writer.join();database.close();scope.cancel() }
 
-    private class Store(context: Context,name: String,private val maxBytes: Long,private val retentionMs: Long): SQLiteOpenHelper(context,name,null,1) {
+    private class Store(context: Context,name: String,private val maxBytes: Long,private val retentionMs: Long): SQLiteOpenHelper(context,name,null,2) {
         override fun onConfigure(db: SQLiteDatabase) { val pageBytes=db.pageSize;db.setMaximumSize(maxBytes.coerceAtLeast(65_536L)/pageBytes*pageBytes) }
         override fun onCreate(db: SQLiteDatabase) {
-            db.execSQL("CREATE TABLE events(seq INTEGER PRIMARY KEY, ts INTEGER NOT NULL, payload TEXT NOT NULL)")
+            db.execSQL("CREATE TABLE events(seq INTEGER PRIMARY KEY, ts INTEGER NOT NULL, bytes INTEGER NOT NULL, payload TEXT NOT NULL)")
             db.execSQL("CREATE TABLE summaries(batch TEXT PRIMARY KEY, ts INTEGER NOT NULL, payload TEXT NOT NULL)")
         }
-        override fun onUpgrade(db: SQLiteDatabase,oldVersion: Int,newVersion: Int) = Unit
+        override fun onUpgrade(db: SQLiteDatabase,oldVersion: Int,newVersion: Int) {
+            if(oldVersion<2) {
+                db.execSQL("ALTER TABLE events ADD COLUMN bytes INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE events SET bytes=length(CAST(payload AS BLOB))")
+            }
+        }
         fun append(events: List<DiagnosticEvent>,maxEvents: Int,retentionMs: Long) {
             val db=writableDatabase
             db.beginTransaction()
@@ -132,11 +137,21 @@ class DiagnosticLog(context: Context,databaseName: String="diagnostics.db",
                 // Prune before and after insert so a full database can make progress.
                 db.execSQL("DELETE FROM events WHERE ts < ?",arrayOf(System.currentTimeMillis()-retentionMs))
                 db.execSQL("DELETE FROM events WHERE seq NOT IN (SELECT seq FROM events ORDER BY seq DESC LIMIT ?)",arrayOf(maxEvents.coerceIn(1,4000)-1))
-                db.execSQL("DELETE FROM events WHERE seq NOT IN (SELECT seq FROM events ORDER BY seq DESC LIMIT ?)",arrayOf((maxBytes/8192).coerceIn(1,4000)))
                 for(event in events) {
                     val payload=DiagnosticPrivacy.json.encodeToString(event)
-                    require(payload.toByteArray(Charsets.UTF_8).size<=4096)
-                    db.insertOrThrow("events",null,ContentValues().apply { put("ts",event.timestampMs);put("payload",payload) })
+                    val size=payload.toByteArray(Charsets.UTF_8).size
+                    require(size<=4096)
+                    // Track actual UTF-8 payload bytes; reserve ample room for page fragmentation,
+                    // summaries and indexes while retaining small events efficiently.
+                    val budget=((maxBytes-65_536L).coerceAtLeast(16_384L)*0.4).toLong()
+                    var retained=android.database.DatabaseUtils.longForQuery(db,"SELECT COALESCE(SUM(bytes),0) FROM events",null)
+                    while(retained+size>budget) {
+                        val removed=db.rawQuery("SELECT seq,bytes FROM events ORDER BY seq LIMIT 1",null).use { c ->
+                            if(c.moveToFirst()) c.getLong(0) to c.getLong(1) else null
+                        } ?: break
+                        db.delete("events","seq=?",arrayOf(removed.first.toString()));retained-=removed.second
+                    }
+                    db.insertOrThrow("events",null,ContentValues().apply { put("ts",event.timestampMs);put("bytes",size);put("payload",payload) })
                     if(event.stage==DiagnosticStage.BATCH_SUMMARY && event.batchId!=null)
                         db.insertWithOnConflict("summaries",null,ContentValues().apply {
                             put("batch",event.batchId);put("ts",event.timestampMs);put("payload",payload)

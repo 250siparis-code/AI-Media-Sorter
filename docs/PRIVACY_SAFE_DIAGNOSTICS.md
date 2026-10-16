@@ -27,7 +27,7 @@ JSON schema version 2 contains a chronological event list, operation indexes gro
 
 ## Retention and failure isolation
 
-The app-private SQLite diagnostic database has a default maximum of **10,000,000 bytes**, bounded records (up to 4,000 events and 20 batch summaries), a 4,096-byte event ceiling and seven-day expiry. A conservative row budget leaves room for SQLite/index overhead; rotation may occur before the advertised upper event count. WAL is not enabled. Short-lived SQLite rollback journals and an explicitly exported user document are not retained diagnostic history. Clearing compacts the database.
+The app-private SQLite diagnostic database has a default maximum of **10,000,000 bytes**, bounded records (up to 4,000 events and 20 batch summaries), a 4,096-byte event ceiling and seven-day expiry. An actual UTF-8 byte counter and payload budget leave room for SQLite/index overhead; rotation may occur before the advertised upper event count. WAL is not enabled. Short-lived SQLite rollback journals and an explicitly exported user document are not retained diagnostic history. Clearing compacts the database.
 
 A bounded 512-command channel feeds one IO writer. Normal logging uses trySend and never waits for disk/network; queue overflow is counted and reported. Storage exceptions update a local health counter rather than propagating into analysis or file operations. Export/clear are explicit asynchronous operations. A storage failure can prevent exporting unavailable data, but does not authorize a media change.
 
@@ -46,3 +46,12 @@ No real Gemini batch or physical-device test is performed by this change. Events
 The prior independent API 35 / 16 KB / R8 test instability (DataStore/ART failures documented in REAL_PHOTO_PIPELINE_REPAIR.md) remains an open risk until separately verified/root-caused; it must not be hidden by rerunning to green or disabling tests.
 
 Final executed test counts, workflow links and APK measurements will be appended after CI completes.
+
+### Local verification at 693f8e16c2c130e0290be1c30585b67a00bebc74
+
+- JDK 17, Gradle 8.9, Android SDK 35: `testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest` succeeded. JVM: 56 tests, zero failures/errors/skips. Python: 20 tests passed.
+- The generated ARM64 debug APK inspection verified minSdk 34, targetSdk 35, APK signature and native alignment. No local emulator is available (`/dev/kvm` absent); instrumentation execution is delegated to the unchanged GitHub Actions matrix.
+- Environment-only setup failures were resolved without changing project configuration: the preinstalled Java runtime lacked jlink; the downloaded JDK needed the system proxy trust store. A subsequent local release attempt exhausted the container's memory while old Java compiler daemons remained resident; stale daemons were stopped and the lower-memory release verification was restarted.
+- A second application-side IO-independent slot preserves the latest 20 pending batch summaries under ordinary-event queue pressure; the final report summary is not silently dropped with normal events. Overflow itself remains visible as a counter/event.
+
+Release R8 mapping inspection showed the new Application diagnostics getter was inlined into MainViewModel. The instrumentation fixture now accesses the existing kept Diagnostics API instead of depending on that removable getter; no broad production keep rule was added. Diagnostic SQLite schema 2 adds an actual UTF-8 byte counter with a non-destructive version-1 migration, improving retention of small events while retaining the hard 10 MB file cap.
