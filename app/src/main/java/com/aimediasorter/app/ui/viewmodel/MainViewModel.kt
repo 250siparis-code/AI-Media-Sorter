@@ -133,8 +133,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val latest=sessions.firstOrNull { it.sourceUri==settings.sourceUri }
             val restored=if(!running && progress.processedFiles==0 && latest?.completedAtMs!=null)
                 progress.copy(totalFiles=latest.totalScanned,processedFiles=latest.totalScanned,
-                    successfulCount=latest.successfulCount,needsReviewCount=latest.uncertainCount,
-                    failedCount=latest.failedCount,pendingCount=latest.pendingCount,apiRequestsSent=latest.apiRequestsSent)
+                    successfulCount=latest.successfulCount,
+                    needsReviewCount=if(latest.successfulCount<0 || latest.pendingCount<0) -1 else latest.uncertainCount,
+                    failedCount=if(latest.successfulCount<0 || latest.pendingCount<0) -1 else latest.failedCount,
+                    pendingCount=latest.pendingCount,apiRequestsSent=latest.apiRequestsSent)
                 else progress
             restored.copy(isPaused=settings.analysisPaused && running,isRunning=running,
                 errorMessage=restored.errorMessage ?: if(work.singleOrNull()?.state==androidx.work.WorkInfo.State.FAILED)

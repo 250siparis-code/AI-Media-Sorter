@@ -351,10 +351,10 @@
     <string name="analysis_diag_response_schema">The returned JSON did not match the required fields, types or limits.</string>
     <string name="analysis_diag_response_categories">Returned category IDs were unsupported or duplicated. No category was guessed.</string>
     <string name="analysis_diag_internal">Local analysis failed unexpectedly. No offline fallback or category guess was used.</string>
-    <string name="analysis_summary_successful">Successful: %1$d</string>
-    <string name="analysis_summary_review">Needs Review: %1$d</string>
-    <string name="analysis_summary_failed">Failed: %1$d</string>
-    <string name="analysis_summary_pending">Pending: %1$d</string>
+    <string name="analysis_summary_successful">Successful: %1$s</string>
+    <string name="analysis_summary_review">Needs Review: %1$s</string>
+    <string name="analysis_summary_failed">Failed: %1$s</string>
+    <string name="analysis_summary_pending">Pending: %1$s</string>
     <string name="analysis_summary_sent">API requests actually sent: %1$d</string>
     <string name="analysis_file_requests">Complete POSTs: %1$d · quota reservations: %2$d</string>
     <string name="analysis_requests_unknown">API requests sent: unknown (older result)</string>
@@ -362,4 +362,5 @@
     <string name="analysis_completed_issues">Processing completed; inspect failed and pending files.</string>
     <string name="analysis_original_unavailable">Original-byte access is unavailable. Virtual analysis is available; COPY/MOVE remains blocked.</string>
     <string name="analysis_counts_unknown">Older results do not have complete outcome counts.</string>
+    <string name="analysis_count_unknown">unknown</string>
 </resources>

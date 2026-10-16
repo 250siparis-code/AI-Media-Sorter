@@ -55,12 +55,13 @@ import com.aimediasorter.app.ui.theme.StatusAmber
     }
 }
 @Composable fun AnalysisResultSummary(successful: Int,review: Int,failed: Int,pending: Int,sent: Int) {
+    val unknown=stringResource(R.string.analysis_count_unknown)
     Column(Modifier.fillMaxWidth().testTag("analysis-result-summary"),verticalArrangement=Arrangement.spacedBy(2.dp)) {
-        if(successful>=0) Text(stringResource(R.string.analysis_summary_successful,successful))
-        else Text(stringResource(R.string.analysis_counts_unknown))
-        Text(stringResource(R.string.analysis_summary_review,review))
-        Text(stringResource(R.string.analysis_summary_failed,failed))
-        if(pending>=0) Text(stringResource(R.string.analysis_summary_pending,pending))
+        Text(stringResource(R.string.analysis_summary_successful,if(successful<0) unknown else successful.toString()))
+        Text(stringResource(R.string.analysis_summary_review,if(review<0) unknown else review.toString()))
+        Text(stringResource(R.string.analysis_summary_failed,if(failed<0) unknown else failed.toString()))
+        Text(stringResource(R.string.analysis_summary_pending,if(pending<0) unknown else pending.toString()))
+        if(successful<0) Text(stringResource(R.string.analysis_counts_unknown),style=MaterialTheme.typography.bodySmall)
         Text(if(sent<0) stringResource(R.string.analysis_requests_unknown) else stringResource(R.string.analysis_summary_sent,sent))
         Text(stringResource(R.string.analysis_sent_definition),style=MaterialTheme.typography.bodySmall)
     }

@@ -351,10 +351,10 @@
     <string name="analysis_diag_response_schema">Dönen JSON gerekli alanlara, türlere veya sınırlara uymuyor.</string>
     <string name="analysis_diag_response_categories">Dönen kategori kimlikleri desteklenmiyor veya yineleniyor. Kategori tahmin edilmedi.</string>
     <string name="analysis_diag_internal">Yerel analiz beklenmedik şekilde başarısız oldu. Çevrimdışı yedek motor veya kategori tahmini kullanılmadı.</string>
-    <string name="analysis_summary_successful">Başarılı: %1$d</string>
-    <string name="analysis_summary_review">İnceleme gerekiyor: %1$d</string>
-    <string name="analysis_summary_failed">Başarısız: %1$d</string>
-    <string name="analysis_summary_pending">Bekleyen: %1$d</string>
+    <string name="analysis_summary_successful">Başarılı: %1$s</string>
+    <string name="analysis_summary_review">İnceleme gerekiyor: %1$s</string>
+    <string name="analysis_summary_failed">Başarısız: %1$s</string>
+    <string name="analysis_summary_pending">Bekleyen: %1$s</string>
     <string name="analysis_summary_sent">Gerçekte gönderilen API isteği: %1$d</string>
     <string name="analysis_file_requests">Tam POST gönderimi: %1$d · kota rezervasyonu: %2$d</string>
     <string name="analysis_requests_unknown">API gönderim sayısı: bilinmiyor (eski sonuç)</string>
@@ -362,4 +362,5 @@
     <string name="analysis_completed_issues">İşleme tamamlandı; başarısız ve bekleyen dosyaları inceleyin.</string>
     <string name="analysis_original_unavailable">Özgün baytlara erişilemiyor. Sanal analiz kullanılabilir; COPY/MOVE engellenmeye devam eder.</string>
     <string name="analysis_counts_unknown">Eski sonuçların tamamlanmış durum sayıları bulunmuyor.</string>
+    <string name="analysis_count_unknown">bilinmiyor</string>
 </resources>

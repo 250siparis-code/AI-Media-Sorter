@@ -68,4 +68,15 @@ class AnalysisDiagnosticUiTest {
             currentReservations=1,currentHttpStatus=200,currentIsVideo=true))
         compose.onNodeWithTag("analysis-video-info",useUnmergedTree=true).performScrollTo().assertIsDisplayed()
     }
+    @Test fun olderResultsShowUnknownCountsInsteadOfInventedDispatchOrOutcomeCounts() {
+        render(LiveAnalysisProgress(totalFiles=36,processedFiles=36,successfulCount=-1,needsReviewCount=-1,
+            failedCount=-1,pendingCount=-1,apiRequestsSent=-1))
+        val unknown=text("analysis_count_unknown")
+        compose.onNodeWithText(text("analysis_summary_successful",unknown)).assertExists()
+        compose.onNodeWithText(text("analysis_summary_review",unknown)).assertExists()
+        compose.onNodeWithText(text("analysis_summary_failed",unknown)).assertExists()
+        compose.onNodeWithText(text("analysis_summary_pending",unknown)).assertExists()
+        compose.onNodeWithText(text("analysis_requests_unknown")).assertExists()
+    }
+
 }
