@@ -18,7 +18,8 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
-import androidx.exifinterface.media.ExifInterface
+// Fixture mutation uses the platform API: AndroidX write methods are correctly unused/stripped in the app.
+import android.media.ExifInterface
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
