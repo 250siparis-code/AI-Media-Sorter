@@ -9,12 +9,16 @@ import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.suspendCancellableCoroutine
 
 /** Fixed official HTTPS origin; no redirects, URL credentials, logging, or raw exceptions. */
-class GeminiHttpTransport : CloudTransport {
+class GeminiHttpTransport(private val openConnection: (URL)->HttpURLConnection = { it.openConnection() as HttpURLConnection }) : CloudTransport {
     companion object {
         private val executor = Executors.newFixedThreadPool(2) { r -> Thread(r,"MediaGemini").apply { isDaemon=true } }
         private val pathPattern=Regex("(models\\?pageSize=100(&pageToken=[A-Za-z0-9%+._~-]+)?|models/gemini-[A-Za-z0-9._-]+:generateContent)")
     }
-    override suspend fun request(path: String, apiKey: String, body: String?): CloudHttpResponse {
+    override suspend fun request(path: String,apiKey: String,body: String?): CloudHttpResponse =
+        exchange(path,apiKey,body,{})
+    override suspend fun request(path: String,apiKey: String,body: String,onSent: ()->Unit): CloudHttpResponse =
+        exchange(path,apiKey,body,onSent)
+    private suspend fun exchange(path: String, apiKey: String, body: String?,onSent: ()->Unit): CloudHttpResponse {
         require(pathPattern.matches(path))
         require(ApiKeyInput.canSave(apiKey) && apiKey == ApiKeyInput.normalized(apiKey))
         return suspendCancellableCoroutine { continuation ->
@@ -22,7 +26,7 @@ class GeminiHttpTransport : CloudTransport {
             val future=executor.submit {
                 try {
                     if(!continuation.isActive) return@submit
-                    val c=URL("https://generativelanguage.googleapis.com/v1beta/$path").openConnection() as HttpURLConnection
+                    val c=openConnection(URL("https://generativelanguage.googleapis.com/v1beta/$path"))
                     active.set(c); c.instanceFollowRedirects=false
                     c.connectTimeout=10_000; c.readTimeout=30_000
                     c.setRequestProperty("x-goog-api-key",apiKey)
@@ -37,11 +41,13 @@ class GeminiHttpTransport : CloudTransport {
                                 stream.write(bytes,offset,minOf(8192,bytes.size-offset))
                             }
                         }
+                        // Count only after the complete body was written and flushed. No claim of Google receipt.
+                        onSent()
                     }
                     val code=c.responseCode
                     val stream=if(code in 200..299) c.inputStream else c.errorStream
                     val data=stream?.use { it.readNBytes(131_073) } ?: byteArrayOf()
-                    if(data.size>131_072) throw CloudFailure(CloudErrorKind.RESPONSE)
+                    if(data.size>131_072) throw CloudFailure(CloudErrorKind.RESPONSE,AnalysisCode.RESPONSE_TOO_LARGE)
                     if(continuation.isActive) continuation.resume(CloudHttpResponse(code,data.toString(Charsets.UTF_8),
                         c.getHeaderField("Retry-After")?.toLongOrNull() ?: 0))
                 } catch (_: java.net.SocketTimeoutException) {

@@ -1,5 +1,7 @@
 package com.aimediasorter.app.ui.screens
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -35,6 +37,7 @@ fun AnalysisProgressScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(AmoledPureBlack)
+            .verticalScroll(rememberScrollState())
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
@@ -52,6 +55,7 @@ fun AnalysisProgressScreen(
                 progress.isDiscovering -> stringResource(R.string.progress_discovering)
                 progress.isRunning -> stringResource(R.string.progress_analyzing)
                 progress.processedFiles == 0 -> stringResource(R.string.progress_ready)
+                progress.failedCount>0 || progress.pendingCount>0 -> stringResource(R.string.analysis_completed_issues)
                 else -> stringResource(R.string.progress_completed)
             },
             style = MaterialTheme.typography.bodyMedium,
@@ -86,6 +90,9 @@ fun AnalysisProgressScreen(
 
         Spacer(modifier = Modifier.height(28.dp))
 
+        AnalysisResultSummary(progress.successfulCount,progress.needsReviewCount,progress.failedCount,
+            progress.pendingCount+(progress.totalFiles-progress.processedFiles).coerceAtLeast(0),progress.apiRequestsSent)
+        Spacer(Modifier.height(12.dp))
         // Live file & thumbnail card
         Surface(
             modifier = Modifier.fillMaxWidth(),
@@ -121,9 +128,11 @@ fun AnalysisProgressScreen(
                         color = PrimaryPurpleLight
                     )
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(
+                    if(progress.currentDiagnosticCode.isNotEmpty()) AnalysisDiagnosticDetails(
+                        progress.currentDiagnosticCode,progress.currentRequestsSent,progress.currentReservations,progress.currentHttpStatus)
+                    if(progress.currentIsVideo && progress.currentDiagnosticCode in setOf("SUCCESS","CACHE_HIT")) Text(
                         text = stringResource(R.string.progress_video_sampling),
-                        style = MaterialTheme.typography.bodyMedium
+                        style = MaterialTheme.typography.bodySmall
                     )
                 }
             }
@@ -132,7 +141,7 @@ fun AnalysisProgressScreen(
         if (progress.errorMessage != null) {
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = stringResource(R.string.action_failed),
+                text = if(progress.errorMessage=="CANCELLED") stringResource(R.string.progress_cancelled) else progress.errorMessage.orEmpty(),
                 color = StatusCoral,
                 style = MaterialTheme.typography.labelMedium
             )

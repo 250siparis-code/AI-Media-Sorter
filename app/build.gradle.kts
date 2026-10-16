@@ -18,8 +18,8 @@ android {
         applicationId = "com.aimediasorter.app"
         minSdk = 34
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.1.0-gemini-gallery"
+        versionCode = 4
+        versionName = "1.1.1-photo-diagnostics"
         ndk { abiFilters += selectedAbi }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

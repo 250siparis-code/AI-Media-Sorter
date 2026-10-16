@@ -5,7 +5,8 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.net.Uri
-import com.aimediasorter.app.domain.storage.OriginalMediaAccess
+import androidx.exifinterface.media.ExifInterface
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import java.io.ByteArrayOutputStream
@@ -14,13 +15,25 @@ import java.security.MessageDigest
 class CloudMediaEncoder(private val context: Context) {
     private fun encode(bitmap: Bitmap,time: Long?=null): CloudImage {
         val out=ByteArrayOutputStream()
-        check(bitmap.compress(Bitmap.CompressFormat.JPEG,85,out))
-        val bytes=out.toByteArray();require(bytes.size<=349_000)
+        if(!bitmap.compress(Bitmap.CompressFormat.JPEG,85,out)) throw CloudFailure(CloudErrorKind.RESPONSE,AnalysisCode.LOCAL_JPEG_ENCODE)
+        val bytes=out.toByteArray()
+        if(bytes.size>349_000 || bytes.size<4 || bytes[0]!=0xff.toByte() || bytes[1]!=0xd8.toByte() ||
+            bytes[bytes.size-2]!=0xff.toByte() || bytes.last()!=0xd9.toByte())
+            throw CloudFailure(CloudErrorKind.RESPONSE,AnalysisCode.LOCAL_JPEG_ENCODE)
         return CloudImage(bytes,time)
     }
     suspend fun images(uri: Uri,path: String?,isVideo: Boolean,orientation: Int,mirrored: Boolean): List<CloudImage> {
+        try { return decode(uri,isVideo,orientation,mirrored) }
+        catch(cancelled: CancellationException) { throw cancelled }
+        catch(known: CloudFailure) { throw known }
+        catch(_: SecurityException) { throw CloudFailure(CloudErrorKind.RESPONSE,AnalysisCode.LOCAL_SOURCE_ACCESS) }
+        catch(_: java.io.FileNotFoundException) { throw CloudFailure(CloudErrorKind.RESPONSE,AnalysisCode.LOCAL_SOURCE_ACCESS) }
+        catch(_: Exception) { throw CloudFailure(CloudErrorKind.RESPONSE,
+            if(isVideo) AnalysisCode.LOCAL_VIDEO_DECODE else AnalysisCode.LOCAL_IMAGE_DECODE) }
+    }
+    private suspend fun decode(uri: Uri,isVideo: Boolean,orientation: Int,mirrored: Boolean): List<CloudImage> {
         if(!isVideo) {
-            val access=OriginalMediaAccess(context)
+            val access=SelectedMediaAccess(context)
             val bounds=BitmapFactory.Options().apply { inJustDecodeBounds=true }
             access.input(uri).use { BitmapFactory.decodeStream(it,null,bounds) }
             require(bounds.outWidth>0 && bounds.outHeight>0)
@@ -28,11 +41,15 @@ class CloudMediaEncoder(private val context: Context) {
             while(bounds.outWidth/sample>1024 || bounds.outHeight/sample>1024) sample*=2
             val bitmap=access.input(uri).use { BitmapFactory.decodeStream(it,null,
                 BitmapFactory.Options().apply { inSampleSize=sample;inPreferredConfig=Bitmap.Config.ARGB_8888 }) }
-                ?: throw CloudFailure(CloudErrorKind.RESPONSE)
+                ?: throw CloudFailure(CloudErrorKind.RESPONSE,AnalysisCode.LOCAL_IMAGE_DECODE)
+            val exif=runCatching { access.input(uri).use { ExifInterface(it) } }.getOrNull()
+            val hasOrientation=exif?.hasAttribute(ExifInterface.TAG_ORIENTATION)==true
+            val rotation=if(hasOrientation) exif!!.rotationDegrees else orientation
+            val flipped=if(hasOrientation) exif!!.isFlipped else mirrored
             var oriented: Bitmap?=null
             var scaled: Bitmap?=null
             return try {
-                val matrix=Matrix().apply { postRotate(orientation.toFloat());if(mirrored) postScale(-1f,1f) }
+                val matrix=Matrix().apply { postRotate(rotation.toFloat());if(flipped) postScale(-1f,1f) }
                 val upright=Bitmap.createBitmap(bitmap,0,0,bitmap.width,bitmap.height,matrix,true)
                 oriented=upright
                 val ratio=minOf(1f,512f/maxOf(upright.width,upright.height))
@@ -47,7 +64,7 @@ class CloudMediaEncoder(private val context: Context) {
         }
         val retriever=MediaMetadataRetriever()
         try {
-            retriever.setDataSource(context,OriginalMediaAccess(context).originalUri(uri))
+            retriever.setDataSource(context,uri)
             val duration=retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0
             require(duration>0)
             val frames=mutableListOf<CloudImage>();val hashes=hashSetOf<String>()
