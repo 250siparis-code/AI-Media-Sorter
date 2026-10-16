@@ -91,7 +91,7 @@
     <!-- Screen 4: AI Analysis Progress -->
     <string name="progress_title">Yapay Zeka İçerik Analizi</string>
     <string name="progress_scanning">Depolama taranıyor ve değişmeyen dosyalar kontrol ediliyor…</string>
-    <string name="progress_analyzing">Görsel içerik cihaz üzerinde analiz ediliyor…</string>
+    <string name="progress_analyzing">Görsel içerik Gemini ile analiz ediliyor…</string>
     <string name="progress_paused">Analiz Duraklatıldı (Kontrol Noktası Kaydedildi)</string>
     <string name="progress_completed">Analiz Tamamlandı</string>
     <string name="progress_counts_fmt">%1$d / %2$d dosya işlendi</string>

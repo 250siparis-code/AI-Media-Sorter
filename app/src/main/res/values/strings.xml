@@ -91,7 +91,7 @@
     <!-- Screen 4: AI Analysis Progress -->
     <string name="progress_title">AI Content Analysis</string>
     <string name="progress_scanning">Scanning storage &amp; verifying unchanged files…</string>
-    <string name="progress_analyzing">Analyzing visual content on-device…</string>
+    <string name="progress_analyzing">Analyzing visual content with Gemini…</string>
     <string name="progress_paused">Analysis Paused (Checkpoint Saved)</string>
     <string name="progress_completed">Analysis Complete</string>
     <string name="progress_counts_fmt">%1$d / %2$d files processed</string>
