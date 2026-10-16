@@ -89,6 +89,9 @@ class VirtualGalleryNativeTest {
             assertEquals("models/gemini-mock",item.analysisModel);assertEquals("GEMINI",item.inferenceEngine)
             assertEquals(2,f.database.virtualGalleryDao().links(item.id).count { it.origin=="EFFECTIVE" })
             assertEquals(1,f.database.mediaItemDao().getAllMediaItems().size)
+            val people=f.database.categoryDao().getAllCategories().first { it.id=="cat_people" }
+            f.repository.upsertCategory(people.copy(description="Edited description must not delete gallery links"))
+            assertEquals(2,f.database.virtualGalleryDao().links(item.id).count { it.origin=="EFFECTIVE" })
             assertTrue(f.destination.listFiles()!!.isEmpty());assertEquals(hash,f.hash(f.image))
             f.repository.updateVirtualCategories(setOf(item.id),setOf("cat_people"),false)
             item=f.item();assertEquals("APPROVED",item.analysisStatus)

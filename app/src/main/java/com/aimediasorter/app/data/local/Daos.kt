@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
+import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -18,7 +19,7 @@ interface CategoryDao {
     @Query("SELECT * FROM categories WHERE isEnabled = 1 ORDER BY priority DESC")
     suspend fun getEnabledCategories(): List<CategoryEntity>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun upsertCategory(category: CategoryEntity)
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
@@ -113,6 +114,8 @@ interface TransferJournalDao {
 interface VirtualGalleryDao {
     @Query("SELECT l.* FROM media_category_links l INNER JOIN media_items m ON m.id=l.mediaId WHERE m.sourceRootUri=:source")
     fun observeLinks(source: String): Flow<List<MediaCategoryLink>>
+    @Query("SELECT DISTINCT mediaId FROM media_category_links WHERE categoryId=:category AND origin='EFFECTIVE'")
+    suspend fun affectedMedia(category: String): List<Long>
     @Query("SELECT * FROM media_category_links WHERE mediaId=:id")
     suspend fun links(id: Long): List<MediaCategoryLink>
     @Insert(onConflict=OnConflictStrategy.REPLACE)
