@@ -27,7 +27,7 @@ object DiagnosticExport {
         generatedAtMs: Long=System.currentTimeMillis()): PreparedDiagnosticExport {
         val all=snapshot.events.mapNotNull(DiagnosticPrivacy::sanitize).asReversed().sortedBy { it.timestampMs }
         val summaries=snapshot.summaries.mapNotNull(DiagnosticPrivacy::sanitize).sortedBy { it.timestampMs }
-        val batch=(summaries+all.filter { it.kind==DiagnosticKind.ANALYSIS_BATCH }).maxByOrNull { it.timestampMs }?.batchId
+        val batch=(summaries+all.filter { it.kind in setOf(DiagnosticKind.ANALYSIS_BATCH,DiagnosticKind.WORKER) && it.batchId!=null }).maxByOrNull { it.timestampMs }?.batchId
         require(scope!=DiagnosticScope.LAST_ANALYSIS || batch!=null) { "NO_ANALYSIS_DIAGNOSTICS" }
         val events=if(scope==DiagnosticScope.LAST_ANALYSIS) all.filter { it.batchId==batch } else all
         val selectedSummaries=if(scope==DiagnosticScope.LAST_ANALYSIS) summaries.filter { it.batchId==batch } else summaries

@@ -23,10 +23,12 @@ class DiagnosticLog(context: Context,databaseName: String="diagnostics.db",
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
     private sealed interface Command {
         data class Append(val event: DiagnosticEvent): Command
+        data object Wake: Command
         data class Snapshot(val result: CompletableDeferred<DiagnosticSnapshot>): Command
         data class Clear(val result: CompletableDeferred<Unit>): Command
     }
     private val queue=Channel<Command>(512)
+    private val pendingSummaries=java.util.concurrent.ConcurrentHashMap<String,DiagnosticEvent>()
     private val dropped=AtomicLong()
     private val failures=AtomicLong()
     private val _recent=MutableStateFlow(DiagnosticSnapshot())
@@ -39,7 +41,12 @@ class DiagnosticLog(context: Context,databaseName: String="diagnostics.db",
         val healthId=UUID.randomUUID().toString()
         for(command in queue) {
             try {
+                // A final batch summary must survive an ordinary-event queue overflow.
+                pendingSummaries.entries.toList().forEach { (batch,event) ->
+                    if(pendingSummaries.remove(batch,event)) database.append(listOf(event),maxEvents,retentionMs)
+                }
                 when(command) {
+                    Command.Wake -> Unit
                     is Command.Append -> {
                         val events=mutableListOf(command.event)
                         // Batch only append commands; snapshot is a FIFO barrier.
@@ -55,7 +62,7 @@ class DiagnosticLog(context: Context,databaseName: String="diagnostics.db",
                         if(System.nanoTime()-lastPublish>250_000_000L) publish()
                     }
                     is Command.Clear -> {
-                        database.clear();dropped.set(0);failures.set(0);lastDropped=0;lastFailures=0;publish();command.result.complete(Unit)
+                        pendingSummaries.clear();database.clear();dropped.set(0);failures.set(0);lastDropped=0;lastFailures=0;publish();command.result.complete(Unit)
                     }
                     is Command.Snapshot -> {
                         publish()
@@ -76,6 +83,12 @@ class DiagnosticLog(context: Context,databaseName: String="diagnostics.db",
     private fun publish() { _recent.value=read(200);lastPublish=System.nanoTime() }
     override fun record(event: DiagnosticEvent) {
         val safe=DiagnosticPrivacy.sanitize(event) ?: return
+        if(safe.stage==DiagnosticStage.BATCH_SUMMARY && safe.batchId!=null) {
+            pendingSummaries[safe.batchId]=safe
+            if(pendingSummaries.size>20) pendingSummaries.entries.minByOrNull { it.value.timestampMs }?.let { pendingSummaries.remove(it.key,it.value) }
+            queue.trySend(Command.Wake)
+            return
+        }
         if(!queue.trySend(Command.Append(safe)).isSuccess) dropped.incrementAndGet()
     }
     fun operation(kind: DiagnosticKind,batchId: String?=null,parentId: String?=null,model: String?=null)=
@@ -106,7 +119,7 @@ class DiagnosticLog(context: Context,databaseName: String="diagnostics.db",
     suspend fun close() { queue.close();writer.join();database.close();scope.cancel() }
 
     private class Store(context: Context,name: String,private val maxBytes: Long,private val retentionMs: Long): SQLiteOpenHelper(context,name,null,1) {
-        override fun onConfigure(db: SQLiteDatabase) { db.setMaximumSize(maxBytes.coerceAtLeast(65_536L)/4096*4096) }
+        override fun onConfigure(db: SQLiteDatabase) { val pageBytes=db.pageSize;db.setMaximumSize(maxBytes.coerceAtLeast(65_536L)/pageBytes*pageBytes) }
         override fun onCreate(db: SQLiteDatabase) {
             db.execSQL("CREATE TABLE events(seq INTEGER PRIMARY KEY, ts INTEGER NOT NULL, payload TEXT NOT NULL)")
             db.execSQL("CREATE TABLE summaries(batch TEXT PRIMARY KEY, ts INTEGER NOT NULL, payload TEXT NOT NULL)")

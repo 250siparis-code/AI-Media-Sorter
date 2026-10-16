@@ -29,7 +29,7 @@ import java.util.Date
     var format by remember { mutableStateOf(DiagnosticFormat.JSON) }
     var clearConfirmation by remember { mutableStateOf(false) }
     val latest=snapshot.summaries.firstOrNull()
-    val currentBatch=snapshot.events.firstOrNull { it.kind==DiagnosticKind.ANALYSIS_BATCH }?.batchId ?: latest?.batchId
+    val currentBatch=(snapshot.summaries+snapshot.events.filter { it.kind in setOf(DiagnosticKind.ANALYSIS_BATCH,DiagnosticKind.WORKER) && it.batchId!=null }).maxByOrNull { it.timestampMs }?.batchId
     val summary=snapshot.summaries.firstOrNull { it.batchId==currentBatch }
     val jsonLauncher=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri -> if(uri!=null) onExport(uri) }
     val textLauncher=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri -> if(uri!=null) onExport(uri) }
