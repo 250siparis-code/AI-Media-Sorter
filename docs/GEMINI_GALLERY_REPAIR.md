@@ -23,7 +23,7 @@ Official references, accessed 2026-10-16:
 - https://ai.google.dev/gemini-api/docs/structured-output
 
 ## Genuine Gemini analysis
-MediaRepository no longer constructs or calls ML Kit, ONNX or offline video classifiers. Old enum settings are decoded and normalized to GEMINI. Legacy classifiers/dependencies remain dormant for regression diagnostics; there is no automatic fallback.
+MediaRepository no longer constructs or calls ML Kit, ONNX or offline video classifiers. Old enum settings are decoded and normalized to GEMINI. The merged ML Kit startup provider is explicitly removed; legacy tests initialize the SDK themselves. Legacy classifiers/dependencies remain dormant for regression diagnostics; there is no automatic fallback.
 Original-byte SHA-256 is computed locally. Photo input is decoded with bounds, orientation/mirroring corrected, downscaled preserving aspect to at most 512 pixels, JPEG encoded without EXIF/GPS, and held in memory. Source media is not rewritten.
 Video uses actual MediaMetadataRetriever decoding at requested 10/50/90 percent offsets, distinct-frame hashing, up to three frames, and a combined request asking Gemini to aggregate independently important subjects across samples. Less than two distinct decoded frames requires review. This is sampled-frame analysis, not complete-video understanding.
 The validated JSON contains categories, subjects and importance, pose, scene, details, reason, and review_status. Only configured category IDs are accepted. Unexpected fields, unsupported values, duplicates, missing/malformed data, blocked or truncated output fail closed. No numerical confidence is requested or fabricated.
@@ -77,6 +77,8 @@ APKs use QA/debug signing for installation testing, not production signing. Andr
 - `app/src/androidTest/java/com/aimediasorter/app/GeminiSettingsUiTest.kt`
 - `app/src/androidTest/java/com/aimediasorter/app/NativePipelineTest.kt`
 - `app/src/androidTest/java/com/aimediasorter/app/VirtualGalleryNativeTest.kt`
+- `app/src/androidTest/java/com/aimediasorter/app/VirtualGalleryUiTest.kt`
+- `app/src/main/AndroidManifest.xml`
 - `app/src/main/java/com/aimediasorter/app/AIMediaSorterApp.kt`
 - `app/src/main/java/com/aimediasorter/app/data/local/AppDatabase.kt`
 - `app/src/main/java/com/aimediasorter/app/data/local/CloudStateStore.kt`
@@ -105,4 +107,5 @@ APKs use QA/debug signing for installation testing, not production signing. Andr
 - `app/src/main/res/values/strings.xml`
 - `app/src/test/java/com/aimediasorter/app/ApiKeyInputTest.kt`
 - `app/src/test/java/com/aimediasorter/app/CloudProtocolTest.kt`
+- `docs/GEMINI_BYOK.md`
 - `docs/GEMINI_GALLERY_REPAIR.md`

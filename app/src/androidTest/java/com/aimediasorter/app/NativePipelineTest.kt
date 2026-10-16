@@ -32,6 +32,11 @@ import java.util.UUID
 class NativePipelineTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext
+    private fun diagnosticClassifier(): OnDeviceAiClassifier {
+        if(runCatching { com.google.mlkit.common.sdkinternal.MlKitContext.getInstance() }.isFailure)
+            com.google.mlkit.common.sdkinternal.MlKitContext.initialize(context)
+        return OnDeviceAiClassifier(context,VisualFeatureExtractor(context))
+    }
     private fun categories() = DefaultCategories.ALL.map {
         CategoryEntity(it.id, it.defaultName, it.defaultDescription, it.colorHex, it.iconKey,
             it.priority, true, true, it.subfolderName)
@@ -66,7 +71,7 @@ class NativePipelineTest {
         assertEquals(com.aimediasorter.app.domain.cloud.AnalysisMode.GEMINI, com.aimediasorter.app.domain.cloud.CloudOptions().mode)
         assertEquals(PackageManager.PERMISSION_GRANTED,
             context.packageManager.checkPermission(Manifest.permission.INTERNET, context.packageName))
-        val classifier = OnDeviceAiClassifier(context, VisualFeatureExtractor(context))
+        val classifier = diagnosticClassifier()
         val image = bitmap()
         try {
             val result = classifier.classifyBitmap(image, categories(),
@@ -84,7 +89,7 @@ class NativePipelineTest {
     }
 
     @Test fun diagnosticOnnxLoadsButCannotApproveAutomaticTransfers() = runBlocking {
-        val classifier = OnDeviceAiClassifier(context, VisualFeatureExtractor(context))
+        val classifier = diagnosticClassifier()
         val image = bitmap()
         try {
             val result = classifier.classifyBitmap(image, categories(),
@@ -105,7 +110,7 @@ class NativePipelineTest {
             file.outputStream().use { input.copyTo(it) }
         }
         val before = digest(file)
-        val classifier = OnDeviceAiClassifier(context, VisualFeatureExtractor(context))
+        val classifier = diagnosticClassifier()
         try {
             val result = VideoFrameAnalyzer(context, classifier).analyzeVideo(
                 Uri.fromFile(file), file.path, 0, categories(),
@@ -125,7 +130,7 @@ class NativePipelineTest {
         val directory = temporaryDirectory()
         val file = File(directory, "broken.mp4").apply { writeBytes(byteArrayOf(1, 3, 9, 0)) }
         val before = digest(file)
-        val classifier = OnDeviceAiClassifier(context, VisualFeatureExtractor(context))
+        val classifier = diagnosticClassifier()
         try {
             val result = VideoFrameAnalyzer(context, classifier).analyzeVideo(
                 Uri.fromFile(file), file.path, 0, categories(),

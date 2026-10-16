@@ -71,7 +71,20 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
         SafeRelativePath.segments(category.destinationSubfolder)
         db.categoryDao().upsertCategory(category)
     }
-    suspend fun deleteCustomCategory(categoryId: String) = db.categoryDao().deleteCustomCategory(categoryId)
+    suspend fun deleteCustomCategory(categoryId: String) {
+        operationMutex.withLock {
+            db.withTransaction {
+                if(db.categoryDao().getAllCategories().firstOrNull { it.id==categoryId }?.isDefault!=false) return@withTransaction
+                for(id in db.virtualGalleryDao().affectedMedia(categoryId)) {
+                    val item=db.mediaItemDao().getMediaItemById(id) ?: continue
+                    db.mediaItemDao().updateMediaItem(item.copy(needsManualReview=true,isManuallyCorrected=false,
+                        analysisStatus="NEEDS_REVIEW",effectiveCategoryId="__review__",effectiveCategoryName="Needs Review",
+                        decisionVersion=item.decisionVersion+1))
+                }
+                db.categoryDao().deleteCustomCategory(categoryId)
+            }
+        }
+    }
     suspend fun reassignMediaCategory(itemId: Long, newCategory: CategoryEntity) =
         updateVirtualCategories(setOf(itemId),setOf(newCategory.id),false)
 
@@ -440,9 +453,11 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                     var journal=TransferJournalEntity(journalId,item.id,live.sourceUri,item.uriString,step.method,
                         "PREPARED",null,null,step.sourceHash,item.originalLastModifiedMs,0,false,System.currentTimeMillis(),"")
                     db.withTransaction {
+                        val currentItem=requireNotNull(db.mediaItemDao().getMediaItemById(item.id))
+                        require(currentItem.decisionVersion==step.decisionVersion && !currentItem.isExcludedFromTransfer)
                         db.virtualGalleryDao().updatePlan(step.copy(status="RUNNING"))
                         db.transferJournalDao().upsert(journal)
-                        db.mediaItemDao().updateMediaItem(item.copy(transferStatus=TransferItemStatus.IN_PROGRESS.name))
+                        db.mediaItemDao().updateMediaItem(currentItem.copy(transferStatus=TransferItemStatus.IN_PROGRESS.name))
                     }
                     _transferProgress.update { it.copy(currentFileName=item.fileName) }
                     val outcome=safeFileMover.transferMediaItem(step.groupId,item.copy(effectiveCategoryId=category.id,
@@ -474,7 +489,8 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
                     db.withTransaction {
                         db.virtualGalleryDao().updatePlan(stored)
                         db.transferLogDao().insertLog(outcome.logEntry)
-                        db.mediaItemDao().updateMediaItem(item.copy(transferStatus=outcome.status.name,
+                        val currentItem=requireNotNull(db.mediaItemDao().getMediaItemById(item.id))
+                        db.mediaItemDao().updateMediaItem(currentItem.copy(transferStatus=outcome.status.name,
                             destinationUriString=outcome.destinationUriString ?: item.destinationUriString,
                             timestampVerified=outcome.timestampPreserved,timestampStatusNote=outcome.detailsMessage))
                         db.transferJournalDao().upsert(journal.copy(phase=if(verified) "FINALIZED" else "FAILED",
