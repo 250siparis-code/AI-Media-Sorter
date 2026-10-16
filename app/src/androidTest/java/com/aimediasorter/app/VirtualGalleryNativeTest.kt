@@ -177,6 +177,23 @@ class VirtualGalleryNativeTest {
         } finally { f.close() }
     }
 
+    @Test fun analysisNeedsNoDestinationAndInvalidPhysicalDestinationCannotBlockVirtualResults()=runBlocking {
+        val f=Fixture(context)
+        try {
+            f.configure();f.preferences.updateDestinationUri("")
+            f.analyze();assertEquals("NEEDS_REVIEW",f.item().analysisStatus)
+            assertEquals(1,f.requests);assertTrue(f.destination.listFiles()!!.isEmpty())
+            val invalid=File(f.source,"Sorted")
+            f.preferences.updateDestinationUri(invalid.path)
+            f.analyze();assertEquals(1,f.requests)
+            val item=f.item()
+            f.repository.updateVirtualCategories(setOf(item.id),setOf("cat_people"),false)
+            try { f.repository.previewOperations(setOf(item.id),TransferMethod.COPY,emptyMap());fail("Nested physical destination must be blocked") }
+            catch(_: IllegalArgumentException) {}
+            assertFalse(invalid.exists());assertTrue(f.image.exists())
+        } finally { f.close() }
+    }
+
     @Test fun cancellationBeforeExecutionRevokesAllUnstartedPhysicalSteps()=runBlocking {
         val f=Fixture(context)
         try {

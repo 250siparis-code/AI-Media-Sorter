@@ -38,7 +38,7 @@
     <string name="destination_folder_label">Destination Root Directory</string>
     <string name="destination_folder_empty">No destination folder selected</string>
     <string name="btn_select_destination">Select Destination Folder (SAF)</string>
-    <string name="folder_loop_error">Safety Error: Destination folder cannot be the same as or inside the source folder.</string>
+    <string name="folder_loop_error">Physical organization requires a destination outside the source. Analysis and virtual folders can proceed without a valid destination.</string>
     <string name="media_filter_label">Media Types to Process</string>
     <string name="filter_all_media">Photos &amp; Videos</string>
     <string name="filter_photos_only">Photos Only</string>

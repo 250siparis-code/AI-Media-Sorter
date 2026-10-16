@@ -208,7 +208,7 @@ class MediaRepository(private val context: Context, database: AppDatabase?=null,
             var uncertain = 0
             var failed = 0
             try {
-                storageScanner.scanCandidates(settings.sourceUri, settings.destinationUri,
+                storageScanner.scanCandidates(settings.sourceUri, "",
                     settings.includeSubfolders, settings.mediaTypeFilter, settings.enabledExtensions) {
                     count -> _analysisProgress.update { it.copy(totalFiles = count) }
                 }.collect { candidate ->

@@ -38,7 +38,7 @@
     <string name="destination_folder_label">Hedef Ana Klasör</string>
     <string name="destination_folder_empty">Hedef klasör seçilmedi</string>
     <string name="btn_select_destination">Hedef Klasör Seç (SAF)</string>
-    <string name="folder_loop_error">Güvenlik Hatası: Hedef klasör, kaynak klasörle aynı veya kaynak klasörün alt dizini olamaz.</string>
+    <string name="folder_loop_error">Fiziksel düzenleme için hedef kaynak klasörün dışında olmalıdır. Analiz ve sanal klasörler geçerli hedef olmadan devam edebilir.</string>
     <string name="media_filter_label">İşlenecek Medya Türü</string>
     <string name="filter_all_media">Fotoğraf ve Videolar</string>
     <string name="filter_photos_only">Yalnızca Fotoğraflar</string>
