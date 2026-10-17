@@ -76,7 +76,7 @@ Before any future live comparison: assemble independently labeled, actual consen
 
 ## Verification status and remaining risks
 
-Local JDK17/Gradle8.9 execution completed with **68 JVM tests, zero failures/errors/skips**; **28 Python tests passed**. `testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest` passed, including compilation of native subject-context persistence and installed UI assertions. These counts are contract/safety evidence, not visual accuracy. Native execution is delegated to CI because the local machine has no KVM device. Final CI results follow when available.
+Local JDK17/Gradle8.9 execution completed with **68 JVM tests, zero failures/errors/skips**; **28 Python tests passed**. `testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest` passed, including compilation of native subject-context persistence and installed UI assertions. The subsequent UI assertion correction also compiled in both debug and R8 release test APKs. These counts are contract/safety evidence, not visual accuracy. Native execution was through CI because the local machine has no KVM device.
 
 Application implementation commit: `1ed8e6602e1d1627565020ba016b59b738e82918`; later corrections change only test assertions and documentation. Local verification on that implementation also passed `assembleRelease assembleReleaseAndroidTest -PqaReleaseSigning=true -PtargetAbi=arm64-v8a` with R8 and resource shrinking. Local APK inspection verified minSdk34/targetSdk35, signature/ZIP validity and all five ARM64 native libraries' 16KB ELF alignment. The local QA APK was 19,616,617 bytes; downloadable CI APK measurements are separate below. No claim is made that alignment establishes runtime stability.
 
@@ -86,7 +86,49 @@ At `1ed8e66`, [PR workflow 39076585735](https://github.com/250siparis-code/AI-Me
 
 The same assertion failure was confirmed in API34/4KB/debug job `117524943751` and API35/16KB/debug job `117524943836`, each with XML totals 68 tests / 1 failure / 1 skip. Their node text contained the expected subject after its visible label; neither logged a process crash. Other unfinished jobs are not counted as passed. These known failed results remain documented when the full workflows are superseded by the test-source correction.
 
-Executed build/test results and downloadable workflow artifacts will be recorded here after verification. Real Gemini visual-accuracy improvement remains **unmeasured** until a matched real-image evaluation is actually performed. A prompt can improve the decision contract but cannot guarantee a model will infer photographic intent correctly, especially from reduced-resolution images or ambiguous compositions. Manual review remains necessary.
+Real Gemini visual-accuracy improvement remains **unmeasured** until a matched real-image evaluation is actually performed. A prompt can improve the decision contract but cannot guarantee a model will infer photographic intent correctly, especially from reduced-resolution images or ambiguous compositions. Manual review remains necessary.
+
+### Final native execution
+
+Final tested commit: `af90df4a368cb73d5ddc80558595c1c1dade804f`. Both [PR workflow 39077116125](https://github.com/250siparis-code/AI-Media-Sorter/actions/runs/39077116125) and independent [push workflow 39077113604](https://github.com/250siparis-code/AI-Media-Sorter/actions/runs/39077113604) completed all five native profiles successfully:
+
+| Profile | PR job | Push job | XML result in each run |
+|---|---:|---:|---|
+| API34 / 4KB / debug | 117526537266 | 117526508430 | 68 tests: 67 passed, 1 optional live test skipped, 0 failures/errors |
+| API34 / 4KB / R8 release QA | 117526537447 | 117526508403 | Same |
+| API35 / 4KB / debug | 117526537470 | 117526508339 | Same |
+| API35 / 16KB / debug | 117526537426 | 117526508408 | Same |
+| API35 / 16KB / R8 release QA | 117526537446 | 117526508317 | Same |
+
+Executed tests include the corrected installed review/thumbnail/full-screen UI assertions, actual photographic JPEG preprocessing → mocked structured subject/context reply → Room/gallery links, privacy-safe protocol/version diagnostics, legacy records, quota/cancellation, storage and transfer safety. The optional live test is skipped without explicit configuration. **No real Gemini response, personal-photo evaluation or physical-device test was used.**
+
+No new runtime crash was reported in these ten final native jobs. The earlier unroot-caused 16KB issue below remains open; passing runs alone do not prove it fixed.
+
+### Final build and artifacts
+
+Both complete workflows above finished **successfully**, including their distribution build jobs (PR `117526537450`, push `117526508228`). Each build ran **68 JVM tests with zero failures/errors/skips**, **28 Python tests**, lintDebug, clean debug/instrumentation compilation, R8/resource-shrunk release packaging, and manifest/signature/ZIP/native/model-asset inspections. No workflow tests were disabled. The shipped application and test sources are the tested `af90df4` tree; the later report commit changes documentation only.
+
+These links use the successful PR workflow. Sizes below are actual APK bytes, not the enclosing artifact ZIP sizes:
+
+| APK | Bytes | MiB | Download |
+|---|---:|---:|---|
+| ARM64 debug | 36,102,121 | 34.429666 | [Debug APKs](https://github.com/250siparis-code/AI-Media-Sorter/actions/runs/39077116125/artifacts/12117916644) |
+| ARM64 R8 release QA | 19,616,617 | 18.707864 | [ARM64 QA](https://github.com/250siparis-code/AI-Media-Sorter/actions/runs/39077116125/artifacts/12117911715) |
+| ARMv7 debug | 34,457,939 | 32.861651 | [Debug APKs](https://github.com/250siparis-code/AI-Media-Sorter/actions/runs/39077116125/artifacts/12117916644) |
+| ARMv7 R8 release QA | 18,272,395 | 17.425914 | [ARMv7 QA](https://github.com/250siparis-code/AI-Media-Sorter/actions/runs/39077116125/artifacts/12117189741) |
+
+[All four APKs](https://github.com/250siparis-code/AI-Media-Sorter/actions/runs/39077116125/artifacts/12117543057) and [verification reports](https://github.com/250siparis-code/AI-Media-Sorter/actions/runs/39077116125/artifacts/12117786241) are available separately. No universal APK was added. The ARM64 QA APK is 4,080 bytes larger than the prior diagnostic QA build (19,612,537 bytes); shrinking remains enabled.
+
+APK SHA-256:
+
+- ARM64 debug: `3c92b991ef36172bd1e4edc7fb49c507e215157dcc3e060bbaccd6d847b024c0`
+- ARM64 release QA: `05dd34492aa6d8df364bac961f352f99504a57b8aea028d49274c595dcd2751c`
+- ARMv7 debug: `bd4b5023b182e01b4a3558a9a74594470ab10581c8486b317e97e3594e4e5c78`
+- ARMv7 release QA: `52cf1ddab5ca48784f5630e296bfa2d670d473005099f83589f190fab078cc60`
+
+All four manifests declare minSdk34/targetSdk35; compileSdk35 remains configured. ARM64 native libraries pass 16KB ELF checks. ARMv7 ML Kit/JNI libraries do not all meet 16KB ELF alignment; the ARMv7 APK is offered for 4KB compatibility, not represented as 16KB-verified. The bundled model/vocabulary assets retain their original SHA-256 values. No model or required feature was removed.
+
+The original-byte/transfer/timestamp source implementations were compared byte-for-byte against the base and remain unchanged: `OriginalMediaAccess`, `VerifiedTransferEngine`, `SafeFileMover`, `LocalTransferStorage`, `ExifAndTimestampManager`. Transfer approvals, SHA-256 verification, source retention and timestamp limitation reporting are preserved.
 
 The pre-existing intermittent API35/16KB ART/ReferenceQueue/Compose runtime crashes remain an unresolved HIGH risk, documented in [PRIVACY_SAFE_DIAGNOSTICS.md](PRIVACY_SAFE_DIAGNOSTICS.md). Alignment checks or one passing emulator run do not close that issue. QA builds use debug signing; compatibility with an existing installation's signing key is unverified. Do not uninstall the existing app to update, since that removes saved results/key/grants. No production-signing or physical-device reliability claim is made.
 
