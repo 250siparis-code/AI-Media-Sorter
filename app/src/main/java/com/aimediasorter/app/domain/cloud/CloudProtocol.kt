@@ -87,7 +87,8 @@ object CloudProtocol {
     fun request(modelCategories: List<CategoryEntity>, images: List<CloudImage>, options: CloudOptions): String {
         require(modelCategories.isNotEmpty() && modelCategories.size <= 50)
         require(images.size in 1..3 && images.all { it.bytes.isNotEmpty() } && images.sumOf { it.bytes.size } <= 1_048_576)
-        val ids = modelCategories.map { it.id }
+        // CategoryDao orders by priority; neither prompt records nor schema enums may inherit that ranking.
+        val ids = modelCategories.map { it.id }.sorted()
         val parts = buildJsonArray {
             add(buildJsonObject { put("text",
                 "Classify the photographic subject and visual intent, not an inventory of visible objects. " +
@@ -103,6 +104,8 @@ object CloudProtocol {
                 "Keep incidental objects in contextual_objects; keep pose, environment and other descriptive details as metadata. " +
                 "Select categories from subject meaning, not keyword matching. No category has fixed priority, and a category " +
                 "must not win merely because an object of that type is present. Use the same composition test for every category. " +
+                "Category enumeration order is not a ranking. Images containing the same objects can deserve different categories " +
+                "when their photographic emphasis differs. Category descriptions describe subject scope, not exhaustive noun lists. " +
                 "Give a short category_decision_reason explaining the visual evidence for the chosen subject categories and " +
                 "why contextual details do not warrant additional categories. Set review_required=true when distinct independently " +
                 "important categories coexist, or when the primary subject/category is uncertain, tied or unusable. " +

@@ -111,7 +111,7 @@ class SubjectIntentTest {
         val image=listOf(CloudImage(byteArrayOf(1)))
         val options=CloudOptions(model="models/gemini-test")
         assertEquals(CloudProtocol.request(categories,image,options),
-            CloudProtocol.request(categories.mapIndexed { index,category -> category.copy(priority=1000-index) },image,options))
+            CloudProtocol.request(categories.mapIndexed { index,category -> category.copy(priority=1000-index) }.reversed(),image,options))
     }
 
     @Test fun boundsAndContextTypesFailClosedWithNoGuessedCategory() {
