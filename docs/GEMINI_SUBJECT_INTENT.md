@@ -30,7 +30,7 @@ The category proposal is exactly the unique union of the validated primary and s
 
 Unsupported IDs, missing/extra fields, invalid types, absent primary descriptions for nonempty primary categories, orphan secondary subjects, blank significance reasons, overlong strings, control characters and oversized arrays fail closed through the existing sanitized diagnostics. There are no generated numerical confidence values. Provider safety/token/JSON/HTTP errors remain separate from semantic review; an invalid response never triggers offline fallback or a guessed category.
 
-The Gemini model selection, official endpoint, JPEG encoding/size, quota reservations, retry policy, token budget, opt-in consent and privacy protections are unchanged. Videos still use joint sampled-frame analysis; changing important subjects or incomplete evidence requires review, and a single decoded frame is always forced to review. No original video is transcoded or altered.
+The Gemini model selection, official endpoint, JPEG encoding/size, quota reservations, retry policy, token budget, opt-in consent and privacy protections are unchanged. The longer prompt adds input text; actual token/billing effects have not been measured with live calls. Videos still use joint sampled-frame analysis; changing important subjects or incomplete evidence requires review, and a single decoded frame is always forced to review. No original video is transcoded or altered.
 
 ## Saved results, cache and UI
 
@@ -77,6 +77,14 @@ Before any future live comparison: assemble independently labeled, actual consen
 ## Verification status and remaining risks
 
 Local JDK17/Gradle8.9 execution completed with **68 JVM tests, zero failures/errors/skips**; **28 Python tests passed**. `testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest` passed, including compilation of native subject-context persistence and installed UI assertions. These counts are contract/safety evidence, not visual accuracy. Native execution is delegated to CI because the local machine has no KVM device. Final CI results follow when available.
+
+Application implementation commit: `1ed8e6602e1d1627565020ba016b59b738e82918`; later corrections change only test assertions and documentation. Local verification on that implementation also passed `assembleRelease assembleReleaseAndroidTest -PqaReleaseSigning=true -PtargetAbi=arm64-v8a` with R8 and resource shrinking. Local APK inspection verified minSdk34/targetSdk35, signature/ZIP validity and all five ARM64 native libraries' 16KB ELF alignment. The local QA APK was 19,616,617 bytes; downloadable CI APK measurements are separate below. No claim is made that alignment establishes runtime stability.
+
+Initial workflows at `82c8339` ([push](https://github.com/250siparis-code/AI-Media-Sorter/actions/runs/39076243760), [PR](https://github.com/250siparis-code/AI-Media-Sorter/actions/runs/39076262301)) were superseded by the enum-order correction and cancelled by the unchanged concurrency policy. They are not counted as passing verification.
+
+At `1ed8e66`, [PR workflow 39076585735](https://github.com/250siparis-code/AI-Media-Sorter/actions/runs/39076585735), API35/4KB/debug job `117524943909`, completed its XML-reported 68 tests with one failure and one optional live test skipped. The new UI assertion used Compose `assertTextContains` with its default full-string matching, while the node correctly displayed `Primary photographic subject: QA primary subject`. The test expected the unprefixed `QA primary subject`. Both subject/context assertions now explicitly use `substring=true` so localized labels are allowed; no production behavior, assertion target or test was removed. A full matrix on the corrected test commit is required. No targeted rerun or test disabling was requested.
+
+The same assertion failure was confirmed in API34/4KB/debug job `117524943751` and API35/16KB/debug job `117524943836`, each with XML totals 68 tests / 1 failure / 1 skip. Their node text contained the expected subject after its visible label; neither logged a process crash. Other unfinished jobs are not counted as passed. These known failed results remain documented when the full workflows are superseded by the test-source correction.
 
 Executed build/test results and downloadable workflow artifacts will be recorded here after verification. Real Gemini visual-accuracy improvement remains **unmeasured** until a matched real-image evaluation is actually performed. A prompt can improve the decision contract but cannot guarantee a model will infer photographic intent correctly, especially from reduced-resolution images or ambiguous compositions. Manual review remains necessary.
 

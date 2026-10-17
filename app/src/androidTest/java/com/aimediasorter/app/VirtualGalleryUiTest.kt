@@ -82,8 +82,8 @@ class VirtualGalleryUiTest {
             compose.onAllNodesWithContentDescription(photo.name).fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithTag("virtual-media-"+id).performClick()
-        compose.onNodeWithTag("analysis-primary-subject").performScrollTo().assertTextContains("QA primary subject")
-        compose.onNodeWithTag("analysis-context-only").performScrollTo().assertTextContains("QA incidental context")
+        compose.onNodeWithTag("analysis-primary-subject").performScrollTo().assertTextContains("QA primary subject",substring=true)
+        compose.onNodeWithTag("analysis-context-only").performScrollTo().assertTextContains("QA incidental context",substring=true)
         compose.onNodeWithTag("view-full-image").performScrollTo().performClick()
         compose.onNodeWithTag("full-media-viewer",useUnmergedTree=true).assertExists()
         val decodedPreview=hasContentDescription(photo.name) and hasAnyAncestor(hasTestTag("full-media-viewer"))
