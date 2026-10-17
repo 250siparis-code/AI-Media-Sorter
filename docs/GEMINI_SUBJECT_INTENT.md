@@ -8,6 +8,8 @@ The user reported that an obvious portrait was assigned Food because of nearby f
 
 The inspected v2 prompt briefly asked for “independently important main subject” categories. Its wire schema returned a flat category list and a separate subject list, with no category-to-subject association. It did not require the model to identify the primary photographic subject, justify the independent significance of an additional subject, or place contextual objects in a separate field. Those contract weaknesses are repaired here. This is a prompt/schema intervention, **not yet evidence of improved real-image accuracy**.
 
+Inspection also found `CategoryDao.getAllCategories()` orders rows by `priority DESC, name ASC`. The v2 request sorted category records by ID but copied the incoming order into the schema's category enum. The revised request canonicalizes both subject-category enums by ID, so changing priority or incoming order cannot change the request. This removes an unintended ordering influence; it does not prove that enum order caused the reported model choices.
+
 ## Actual request and response changes
 
 `CloudProtocol.request` now asks Gemini to classify photographic subject/intent using framing, composition, focus, prominence, relative visual importance and interaction. Pixel area, mere visibility and recognizable nouns alone are insufficient. It asks for a short evidence-based decision summary, not invented certainty or an imagined backstory. The same composition test applies to every configured category; there is no fixed People/Food/Nature/Buildings precedence, filename exception or photo-specific rule.
