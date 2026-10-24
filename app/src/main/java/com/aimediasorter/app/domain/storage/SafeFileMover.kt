@@ -85,7 +85,7 @@ class SafeFileMover(
             )
         }
 
-        val cleanSubfolder = categorySubfolder.trim('/', '\').ifBlank { item.effectiveCategoryName }
+        val cleanSubfolder = categorySubfolder.trim('/', '\\').ifBlank { item.effectiveCategoryName }
         val directDestRoot = File(destinationRootUri)
         if (! item.filePath.isNullOrBlank() && (directDestRoot.exists() || destinationRootUri.startsWith("/"))) {
             return transferViaLocalFilesystem(

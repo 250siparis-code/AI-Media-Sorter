@@ -24,11 +24,8 @@ jobs:
 
       - name: Set up Android SDK (API 35)
         uses: android-actions/setup-android@v3
-
-      - name: Accept Android SDK Licenses & Install Platform 35
-        run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
 
       - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
@@ -40,6 +37,12 @@ jobs:
 
       - name: Assemble Debug APK
         run: gradle assembleDebug --stacktrace
+
+      - name: Verify Android 15 minimum SDK
+        run: |
+          actual_min_sdk="$("$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest min-sdk app/build/outputs/apk/debug/app-debug.apk)"
+          echo "APK minimum SDK: $actual_min_sdk"
+          test "$actual_min_sdk" = "35"
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4

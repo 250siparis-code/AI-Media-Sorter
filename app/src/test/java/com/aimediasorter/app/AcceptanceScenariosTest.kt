@@ -126,7 +126,7 @@ class AcceptanceScenariosTest {
     fun testPosixSingleQuoteEscaping_preservesUnicodeSpacesQuotesAndDollarSigns() {
         val rawName = "İstanbul Boğazı 'Kahvaltı' \$100 & (Test).jpg"
         val escaped = "'" + rawName.replace("'", "'\\''") + "'"
-        assertEquals("'İstanbul Boğazı '\''Kahvaltı'\'' \$100 & (Test).jpg'", escaped)
+        assertEquals("'İstanbul Boğazı '\\''Kahvaltı'\\'' \$100 & (Test).jpg'", escaped)
     }
 
     @Test

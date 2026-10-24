@@ -35,8 +35,7 @@ class ReportExporter(private val context: Context) {
             writer.write(
                 "ID,FileName,Type,Extension,SizeBytes,OriginalLastModifiedMs,ExifCaptureDateMs," +
                 "DetectedCategory,EffectiveCategory,CalibratedConfidence,RawSimilarity,TopMargin," +
-                "NeedsManualReview,IsManuallyCorrected,Excluded,TransferStatus,SHA256,TimestampVerified
-"
+                "NeedsManualReview,IsManuallyCorrected,Excluded,TransferStatus,SHA256,TimestampVerified\n"
             )
             for (item in mediaItems) {
                 writer.write(
@@ -59,8 +58,7 @@ class ReportExporter(private val context: Context) {
                         item.transferStatus,
                         item.sha256Checksum ?: "",
                         (item.timestampVerified ?: "").toString()
-                    ).joinToString(",") + "
-"
+                    ).joinToString(",") + "\n"
                 )
             }
         }
@@ -85,7 +83,7 @@ class ReportExporter(private val context: Context) {
     }
 
     private fun escapeCsv(value: String): String {
-        val escaped = value.replace(""", """")
-        return ""$escaped""
+        val escaped = value.replace("\"", "\"\"")
+        return "\"$escaped\""
     }
 }
