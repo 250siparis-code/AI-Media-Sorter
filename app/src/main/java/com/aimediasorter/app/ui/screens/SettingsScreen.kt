@@ -1,5 +1,9 @@
 package com.aimediasorter.app.ui.screens
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import com.aimediasorter.app.data.model.OperationMode
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -31,10 +35,15 @@ fun SettingsScreen(
     onConfidenceChange: (Float) -> Unit,
     onTimestampPolicyChange: (TimestampPolicy) -> Unit,
     onCollisionPolicyChange: (CollisionPolicy) -> Unit,
-    onPreviewBeforeMovingChange: (Boolean) -> Unit,
+    onOperationModeChange: (OperationMode) -> Unit,
+    canSaveExport: Boolean,
+    onSaveExport: (Uri) -> Unit,
     onExportCsv: () -> Unit,
     onExportJson: () -> Unit
 ) {
+    val saveExport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        if (uri != null) onSaveExport(uri)
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -70,7 +79,7 @@ fun SettingsScreen(
             Text(text = stringResource(R.string.settings_model_info), style = MaterialTheme.typography.bodyMedium)
             Spacer(modifier = Modifier.height(8.dp))
 
-            AiEngineMode.entries.forEach { mode ->
+            AiEngineMode.entries.filter { it != AiEngineMode.CUSTOM_MOBILECLIP_ONNX }.forEach { mode ->
                 val labelRes = when (mode) {
                     AiEngineMode.HYBRID_ONNX_AND_MLKIT -> R.string.ai_engine_hybrid
                     AiEngineMode.ONNX_EMBEDDER_ONLY -> R.string.ai_engine_onnx_only
@@ -85,6 +94,7 @@ fun SettingsScreen(
                 }
             }
 
+            if (settings.aiEngineMode == AiEngineMode.ONNX_EMBEDDER_ONLY) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -99,6 +109,8 @@ fun SettingsScreen(
                     checked = settings.hardwareAcceleration,
                     onCheckedChange = onHardwareAccelChange
                 )
+            }
+
             }
 
             Spacer(modifier = Modifier.height(6.dp))
@@ -116,6 +128,13 @@ fun SettingsScreen(
 
         // Section 3: Timestamp & Collision Policies
         SettingsSectionCard(title = stringResource(R.string.settings_section_safety)) {
+            Text(stringResource(R.string.settings_operation_mode), style = MaterialTheme.typography.labelMedium)
+            OperationMode.entries.forEach { mode ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(selected = settings.operationMode == mode, onClick = { onOperationModeChange(mode) })
+                    Text(stringResource(if (mode == OperationMode.ANALYSIS_ONLY) R.string.mode_analysis_only else R.string.mode_move_enabled))
+                }
+            }
             Text(text = stringResource(R.string.settings_timestamp_policy), style = MaterialTheme.typography.labelMedium)
             TimestampPolicy.entries.forEach { policy ->
                 val res = when (policy) {
@@ -148,21 +167,7 @@ fun SettingsScreen(
                 }
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = stringResource(R.string.settings_preview_before_move),
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.weight(1f)
-                )
-                Switch(
-                    checked = settings.previewBeforeMoving,
-                    onCheckedChange = onPreviewBeforeMovingChange
-                )
-            }
+
         }
 
         // Section 4: History & Export
@@ -187,10 +192,19 @@ fun SettingsScreen(
                 }
             }
 
+            OutlinedButton(
+                enabled = canSaveExport,
+                onClick = { saveExport.launch("AI_Media_Sorter_export.zip") }
+            ) { Text(stringResource(R.string.export_save_zip)) }
+
             if (!exportStatusMessage.isNullOrBlank()) {
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = stringResource(R.string.export_success_fmt, exportStatusMessage),
+                    text = when (exportStatusMessage) {
+                        "EXPORT_READY" -> stringResource(R.string.export_ready)
+                        "EXPORT_SAVED" -> stringResource(R.string.export_saved)
+                        else -> stringResource(R.string.action_failed)
+                    },
                     style = MaterialTheme.typography.labelMedium,
                     color = StatusEmerald
                 )
@@ -202,7 +216,7 @@ fun SettingsScreen(
             } else {
                 sessions.take(5).forEach { s ->
                     Text(
-                        text = "• [${s.status}] ${s.totalClassified}/${s.totalScanned} files (Uncertain: ${s.uncertainCount})",
+                        text = stringResource(R.string.history_session_fmt, s.totalClassified, s.totalScanned, s.uncertainCount),
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }

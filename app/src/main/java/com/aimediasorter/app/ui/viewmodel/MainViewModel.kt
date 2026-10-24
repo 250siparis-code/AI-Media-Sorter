@@ -7,6 +7,23 @@ import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.os.LocaleListCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.WorkManager
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.workDataOf
+import com.aimediasorter.app.worker.MediaAnalysisWorker
+import com.aimediasorter.app.worker.MediaTransferWorker
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
+import androidx.documentfile.provider.DocumentFile
+
 import com.aimediasorter.app.AIMediaSorterApp
 import com.aimediasorter.app.data.local.AnalysisSessionEntity
 import com.aimediasorter.app.data.local.CategoryEntity
@@ -36,6 +53,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repo = (application as AIMediaSorterApp).repository
     private val settingsRepo = repo.settingsRepository
+    private val workManager = WorkManager.getInstance(application)
 
     val settingsState: StateFlow<AppSettings> = settingsRepo.settingsFlow.stateIn(
         viewModelScope,
@@ -67,8 +85,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         emptyList()
     )
 
-    val analysisProgress: StateFlow<LiveAnalysisProgress> = repo.analysisProgress
-    val transferProgress: StateFlow<LiveTransferProgress> = repo.transferProgress
+    val analysisProgress: StateFlow<LiveAnalysisProgress> =
+        combine(repo.analysisProgress, workManager.getWorkInfosForUniqueWorkFlow(MediaAnalysisWorker.WORK_NAME), settingsRepo.settingsFlow) { progress, work, settings ->
+            progress.copy(isPaused = settings.analysisPaused && work.any { !it.state.isFinished }, isRunning = work.any { !it.state.isFinished },
+                errorMessage = progress.errorMessage ?: if (work.singleOrNull()?.state == androidx.work.WorkInfo.State.FAILED) "Analysis failed; inspect permissions and settings." else null)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), LiveAnalysisProgress())
+
+    val transferProgress: StateFlow<LiveTransferProgress> =
+        combine(repo.transferProgress, workManager.getWorkInfosForUniqueWorkFlow(MediaTransferWorker.WORK_NAME)) { progress, work ->
+            progress.copy(isRunning = work.any { !it.state.isFinished })
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), LiveTransferProgress())
+
+    val folderLoopError: StateFlow<Boolean> = settingsRepo.settingsFlow.map {
+        withContext(Dispatchers.IO) { repo.storageScanner.isDestinationInsideSource(it.sourceUri, it.destinationUri) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
 
     private val _exportStatusMessage = MutableStateFlow<String?>(null)
     val exportStatusMessage: StateFlow<String?> = _exportStatusMessage.asStateFlow()
@@ -80,22 +111,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var activeTransferJob: Job? = null
 
     init {
-        viewModelScope.launch {
+        launchSafely {
             repo.ensureDefaultCategories()
+            repo.reconcileInterruptedTransfers()
         }
     }
 
     fun selectSourceFolder(uri: Uri) {
-        persistUriPermission(uri)
-        viewModelScope.launch {
-            settingsRepo.updateSourceUri(uri.toString())
+        launchSafely {
+            try {
+                persistUriPermission(uri, false)
+                workManager.cancelUniqueWork(MediaAnalysisWorker.WORK_NAME)
+                workManager.cancelUniqueWork(MediaTransferWorker.WORK_NAME)
+                settingsRepo.updateSourceUri(uri.toString())
+            } catch (error: Exception) {
+                _exportStatusMessage.value = "ERROR:" + error.message
+            }
         }
     }
 
     fun selectDestinationFolder(uri: Uri) {
-        persistUriPermission(uri)
-        viewModelScope.launch {
-            settingsRepo.updateDestinationUri(uri.toString())
+        launchSafely {
+            try {
+                persistUriPermission(uri, true)
+                workManager.cancelUniqueWork(MediaTransferWorker.WORK_NAME)
+                settingsRepo.updateDestinationUri(uri.toString())
+            } catch (error: Exception) {
+                _exportStatusMessage.value = "ERROR:" + error.message
+            }
         }
     }
 
@@ -104,67 +147,70 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setIncludeSubfolders(enabled: Boolean) {
-        viewModelScope.launch { settingsRepo.updateIncludeSubfolders(enabled) }
+        launchSafely { settingsRepo.updateIncludeSubfolders(enabled) }
     }
 
     fun setMediaTypeFilter(filter: MediaTypeFilter) {
-        viewModelScope.launch { settingsRepo.updateMediaTypeFilter(filter) }
+        launchSafely { settingsRepo.updateMediaTypeFilter(filter) }
     }
 
     fun toggleSupportedExtension(ext: String) {
-        viewModelScope.launch { settingsRepo.toggleExtension(ext) }
+        launchSafely { settingsRepo.toggleExtension(ext) }
     }
 
     fun setOperationMode(mode: OperationMode) {
-        viewModelScope.launch { settingsRepo.updateOperationMode(mode) }
+        launchSafely {
+            settingsRepo.updateOperationMode(mode)
+            if (mode == OperationMode.ANALYSIS_ONLY) workManager.cancelUniqueWork(MediaTransferWorker.WORK_NAME)
+        }
     }
 
     fun setTransferMethod(method: TransferMethod) {
-        viewModelScope.launch { settingsRepo.updateTransferMethod(method) }
+        launchSafely { settingsRepo.updateTransferMethod(method) }
     }
 
     fun setConfidenceThreshold(value: Float) {
-        viewModelScope.launch { settingsRepo.updateConfidenceThreshold(value) }
+        launchSafely { settingsRepo.updateConfidenceThreshold(value) }
     }
 
     fun setAiEngineMode(mode: AiEngineMode) {
-        viewModelScope.launch { settingsRepo.updateAiEngineMode(mode) }
+        launchSafely { settingsRepo.updateAiEngineMode(mode) }
     }
 
     fun setCustomOnnxModelPath(path: String) {
-        viewModelScope.launch { settingsRepo.updateCustomOnnxModelPath(path) }
+        launchSafely { settingsRepo.updateCustomOnnxModelPath(path) }
     }
 
     fun setHardwareAcceleration(enabled: Boolean) {
-        viewModelScope.launch { settingsRepo.updateHardwareAcceleration(enabled) }
+        launchSafely { settingsRepo.updateHardwareAcceleration(enabled) }
     }
 
     fun setTimestampPolicy(policy: TimestampPolicy) {
-        viewModelScope.launch { settingsRepo.updateTimestampPolicy(policy) }
+        launchSafely { settingsRepo.updateTimestampPolicy(policy) }
     }
 
     fun setCollisionPolicy(policy: CollisionPolicy) {
-        viewModelScope.launch { settingsRepo.updateCollisionPolicy(policy) }
+        launchSafely { settingsRepo.updateCollisionPolicy(policy) }
     }
 
     fun setPreviewBeforeMoving(enabled: Boolean) {
-        viewModelScope.launch { settingsRepo.updatePreviewBeforeMoving(enabled) }
+        launchSafely { settingsRepo.updatePreviewBeforeMoving(enabled) }
     }
 
     fun setLanguage(langCode: String) {
-        viewModelScope.launch {
+        launchSafely {
             settingsRepo.updateLanguageCode(langCode)
             val appLocale = LocaleListCompat.forLanguageTags(langCode)
-            AppCompatDelegate.setApplicationLocales(appLocale)
+            withContext(Dispatchers.Main.immediate) { AppCompatDelegate.setApplicationLocales(appLocale) }
         }
     }
 
     fun setPureBlackAmoled(enabled: Boolean) {
-        viewModelScope.launch { settingsRepo.updatePureBlackAmoled(enabled) }
+        launchSafely { settingsRepo.updatePureBlackAmoled(enabled) }
     }
 
     fun toggleCategoryEnabled(category: CategoryEntity) {
-        viewModelScope.launch {
+        launchSafely {
             repo.upsertCategory(category.copy(isEnabled = !category.isEnabled))
         }
     }
@@ -178,7 +224,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         colorHex: Long = 0xFF8B45FF
     ) {
         if (name.isBlank()) return
-        viewModelScope.launch {
+        launchSafely {
             val id = existingId ?: "cat_custom_${UUID.randomUUID().toString().take(8)}"
             val existing = categoriesState.value.firstOrNull { it.id == id }
             val entity = CategoryEntity(
@@ -198,119 +244,165 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deleteCustomCategory(categoryId: String) {
-        viewModelScope.launch {
+        launchSafely {
             repo.deleteCustomCategory(categoryId)
         }
     }
 
     fun startAnalysis() {
-        if (activeAnalysisJob?.isActive == true) return
-        activeAnalysisJob = viewModelScope.launch {
-            val currentSettings = settingsRepo.settingsFlow.first()
-            runCatching {
-                repo.executeMediaScanAndAnalysis(currentSettings)
-            }
+        if (analysisProgress.value.isRunning || activeAnalysisJob?.isActive == true) return
+        activeAnalysisJob = launchSafely {
+            repo.setAnalysisPaused(false)
+            val settings = settingsRepo.settingsFlow.first()
+            val work = OneTimeWorkRequestBuilder<MediaAnalysisWorker>()
+                .setInputData(workDataOf(MediaAnalysisWorker.SETTINGS_JSON to Json.encodeToString(settings))).build()
+            workManager.enqueueUniqueWork(MediaAnalysisWorker.WORK_NAME, ExistingWorkPolicy.KEEP, work)
         }
     }
 
     fun togglePauseAnalysis() {
         val currentPaused = analysisProgress.value.isPaused
-        repo.setAnalysisPaused(!currentPaused)
+        launchSafely { repo.setAnalysisPaused(!currentPaused) }
     }
 
     fun cancelAnalysis() {
-        activeAnalysisJob?.cancel()
-        repo.setAnalysisPaused(false)
+        workManager.cancelUniqueWork(MediaAnalysisWorker.WORK_NAME)
+        launchSafely { repo.setAnalysisPaused(false) }
     }
 
     fun reassignMediaCategory(itemId: Long, category: CategoryEntity) {
-        viewModelScope.launch {
+        launchSafely {
             repo.reassignMediaCategory(itemId, category)
         }
     }
 
     fun setExcludeMediaItem(itemId: Long, excluded: Boolean) {
-        viewModelScope.launch {
+        launchSafely {
             repo.setExcludeFromTransfer(itemId, excluded)
         }
     }
 
     fun executeTransfers(includeReviewItems: Boolean = false) {
-        if (activeTransferJob?.isActive == true) return
-        activeTransferJob = viewModelScope.launch {
-            val currentSettings = settingsRepo.settingsFlow.first()
-            repo.executeVerifiedTransfers(currentSettings, includeReviewItems)
+        if (transferProgress.value.isRunning || activeTransferJob?.isActive == true) return
+        activeTransferJob = launchSafely {
+            val settings = settingsRepo.settingsFlow.first()
+            if (settings.operationMode != OperationMode.MOVE_FILES) {
+                _exportStatusMessage.value = "ORGANIZE_REQUIRED"
+                return@launchSafely
+            }
+            val work = OneTimeWorkRequestBuilder<MediaTransferWorker>()
+                .setInputData(workDataOf(MediaAnalysisWorker.SETTINGS_JSON to Json.encodeToString(settings),
+                    MediaTransferWorker.INCLUDE_REVIEW to includeReviewItems)).build()
+            workManager.enqueueUniqueWork(MediaTransferWorker.WORK_NAME, ExistingWorkPolicy.KEEP, work)
         }
     }
 
     fun cancelTransfers() {
-        activeTransferJob?.cancel()
+        workManager.cancelUniqueWork(MediaTransferWorker.WORK_NAME)
     }
 
+    fun saveLastExport(uri: Uri) {
+        val result = _lastTermuxExportResult.value ?: return
+        launchSafely {
+            try {
+                getApplication<Application>().contentResolver.openOutputStream(uri, "wt")?.use { output ->
+                    ZipOutputStream(output).use { zip ->
+                        result.generatedFiles.forEach { file ->
+                            zip.putNextEntry(ZipEntry(file.name))
+                            file.inputStream().use { it.copyTo(zip) }
+                            zip.closeEntry()
+                        }
+                    }
+                } ?: error("Export destination unavailable.")
+                _exportStatusMessage.value = "EXPORT_SAVED"
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) { _exportStatusMessage.value = "ERROR:" + error.message }
+        }
+    }
 
     fun exportOperationsCsv(selectedIds: Set<Long>) {
-        viewModelScope.launch {
+        launchSafely {
             val s = settingsRepo.settingsFlow.first()
             val res = repo.exportTermuxCsv(selectedIds, s.destinationUri, s.transferMethod)
             _lastTermuxExportResult.value = res
-            _exportStatusMessage.value = res.exportDirectoryPath
+            _exportStatusMessage.value = "EXPORT_READY"
         }
     }
 
     fun exportOperationsJson(selectedIds: Set<Long>) {
-        viewModelScope.launch {
+        launchSafely {
             val s = settingsRepo.settingsFlow.first()
             val res = repo.exportTermuxJson(selectedIds, s.destinationUri, s.transferMethod)
             _lastTermuxExportResult.value = res
-            _exportStatusMessage.value = res.exportDirectoryPath
+            _exportStatusMessage.value = "EXPORT_READY"
         }
     }
 
     fun exportOperationsMoveScript(selectedIds: Set<Long>) {
-        viewModelScope.launch {
+        launchSafely {
             val s = settingsRepo.settingsFlow.first()
             val res = repo.exportTermuxScript(selectedIds, s.destinationUri, TransferMethod.MOVE)
             _lastTermuxExportResult.value = res
-            _exportStatusMessage.value = res.exportDirectoryPath
+            _exportStatusMessage.value = "EXPORT_READY"
         }
     }
 
     fun exportOperationsCopyScript(selectedIds: Set<Long>) {
-        viewModelScope.launch {
+        launchSafely {
             val s = settingsRepo.settingsFlow.first()
             val res = repo.exportTermuxScript(selectedIds, s.destinationUri, TransferMethod.COPY)
             _lastTermuxExportResult.value = res
-            _exportStatusMessage.value = res.exportDirectoryPath
+            _exportStatusMessage.value = "EXPORT_READY"
         }
     }
 
     fun exportOperationsAll(selectedIds: Set<Long>) {
-        viewModelScope.launch {
+        launchSafely {
             val s = settingsRepo.settingsFlow.first()
             val res = repo.exportTermuxAll(selectedIds, s.destinationUri, s.transferMethod)
             _lastTermuxExportResult.value = res
-            _exportStatusMessage.value = res.exportDirectoryPath
+            _exportStatusMessage.value = "EXPORT_READY"
         }
     }
 
     fun exportCsvReport() {
-        viewModelScope.launch {
+        launchSafely {
             val file = repo.exportCsv()
-            _exportStatusMessage.value = file.absolutePath
+            _lastTermuxExportResult.value = ExportBundleResult(file.parent.orEmpty(), mediaItemsState.value.size, 0, listOf(file))
+            _exportStatusMessage.value = "EXPORT_READY"
         }
     }
 
     fun exportJsonReport() {
-        viewModelScope.launch {
+        launchSafely {
             val file = repo.exportJson()
-            _exportStatusMessage.value = file.absolutePath
+            _lastTermuxExportResult.value = ExportBundleResult(file.parent.orEmpty(), mediaItemsState.value.size, 0, listOf(file))
+            _exportStatusMessage.value = "EXPORT_READY"
         }
     }
 
-    private fun persistUriPermission(uri: Uri) {
-        runCatching {
-            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-            getApplication<Application>().contentResolver.takePersistableUriPermission(uri, flags)
+    fun dismissStatusMessage() { _exportStatusMessage.value = null }
+
+    private fun launchSafely(block: suspend () -> Unit): Job =
+        viewModelScope.launch(Dispatchers.IO) {
+            try { block() }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) { _exportStatusMessage.value = "ERROR:" + error.message }
         }
+
+    private fun persistUriPermission(uri: Uri, requireWrite: Boolean) {
+        val resolver = getApplication<Application>().contentResolver
+        resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        val document = DocumentFile.fromTreeUri(getApplication(), uri) ?: error("Invalid folder.")
+        require(document.canRead()) { "Read permission was not granted." }
+        if (document.canWrite()) {
+            resolver.takePersistableUriPermission(uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        } else {
+            require(!requireWrite) { "Destination write permission was not granted." }
+        }
+        require(resolver.persistedUriPermissions.any {
+            it.uri == uri && it.isReadPermission && (!requireWrite || it.isWritePermission)
+        }) { "Persistent folder permission was not granted." }
     }
 }

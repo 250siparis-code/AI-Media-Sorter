@@ -2,35 +2,39 @@ package com.aimediasorter.app.domain.storage
 
 import android.content.Context
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.webkit.MimeTypeMap
 import androidx.documentfile.provider.DocumentFile
 import com.aimediasorter.app.data.model.DefaultCategories
 import com.aimediasorter.app.data.model.MediaTypeFilter
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.buffer
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.toList
 import java.io.File
-import java.net.URLDecoder
+import java.io.IOException
+import java.nio.file.Files
+import java.util.Locale
 
 data class ScannedMediaCandidate(
-    val uri: Uri,
-    val filePath: String?,
-    val fileName: String,
-    val extension: String,
-    val isVideo: Boolean,
-    val mimeType: String,
-    val fileSizeBytes: Long,
-    val lastModifiedMs: Long,
-    val quickFingerprint: String
+    val uri: Uri, val filePath: String?, val fileName: String, val extension: String,
+    val isVideo: Boolean, val mimeType: String, val fileSizeBytes: Long,
+    val lastModifiedMs: Long, val quickFingerprint: String
 )
 
 class StorageScanner(private val context: Context) {
-
-    /**
-     * Prevents recursive processing loops by verifying that the destination folder is neither
-     * identical to nor nested inside the source folder.
-     */
+    fun resolveLocalFile(raw: String): File? {
+        if (raw.startsWith("/")) return File(raw)
+        val uri = Uri.parse(raw)
+        return if (uri.scheme == "file") uri.path?.let { File(it) } else null
+    }
     fun isDestinationInsideSource(sourceUriStr: String, destinationUriStr: String): Boolean {
         if (sourceUriStr.isBlank() || destinationUriStr.isBlank()) return false
+<<<<<<< /tmp/prmerge/o5
         val normalizedSrc = normalizeUriOrPath(sourceUriStr)
         val normalizedDst = normalizeUriOrPath(destinationUriStr)
         if (normalizedSrc.equals(normalizedDst, ignoreCase = true)) return true
@@ -53,174 +57,144 @@ class StorageScanner(private val context: Context) {
         if (sourceUriStr.isBlank()) return emptyList()
         if (isDestinationInsideSource(sourceUriStr, destinationUriStr)) {
             throw IllegalArgumentException("Safety violation: Destination folder is inside or equal to the source folder.")
+=======
+        val sourceFile = resolveLocalFile(sourceUriStr)
+        val destinationFile = resolveLocalFile(destinationUriStr)
+        if (sourceFile != null && destinationFile != null) {
+            return destinationFile.canonicalFile.toPath().startsWith(sourceFile.canonicalFile.toPath())
+>>>>>>> /tmp/prmerge/t5
         }
+        val source = Uri.parse(sourceUriStr)
+        val destination = Uri.parse(destinationUriStr)
+        if (source.scheme != "content" || destination.scheme != "content") return false
+        if (source.authority != destination.authority) return false
+        val sourceId = runCatching { DocumentsContract.getTreeDocumentId(source) }.getOrNull() ?: return true
+        val destinationId = runCatching { DocumentsContract.getTreeDocumentId(destination) }.getOrNull() ?: return true
+        if (sourceId == destinationId) return true
+        if (source.authority == "com.android.externalstorage.documents") {
+            val sourceParts = sourceId.split(':', limit = 2)
+            val destinationParts = destinationId.split(':', limit = 2)
+            if (sourceParts.size != 2 || destinationParts.size != 2) return true
+            if (sourceParts[0] != destinationParts[0]) return false
+            val sourcePath = sourceParts[1].trim('/')
+            val destinationPath = destinationParts[1].trim('/')
+            return sourcePath.isEmpty() || destinationPath == sourcePath ||
+                destinationPath.startsWith(sourcePath + "/")
+        }
+        return runCatching {
+            DocumentsContract.isChildDocument(context.contentResolver,
+                DocumentsContract.buildDocumentUriUsingTree(source, sourceId),
+                DocumentsContract.buildDocumentUriUsingTree(destination, destinationId))
+        }.getOrDefault(true)
+    }
+    fun normalizeUriOrPath(raw: String): String =
+        resolveLocalFile(raw)?.canonicalPath ?: Uri.parse(raw).normalizeScheme().toString().trimEnd('/')
 
-        val normalizedExtensions = enabledExtensions.map { it.lowercase() }.toSet()
-        val results = mutableListOf<ScannedMediaCandidate>()
+    suspend fun scanDirectory(
+        sourceUriStr: String, destinationUriStr: String, includeSubfolders: Boolean,
+        mediaTypeFilter: MediaTypeFilter, enabledExtensions: Set<String>,
+        onProgress: suspend (Int) -> Unit = {}
+    ): List<ScannedMediaCandidate> =
+        scanCandidates(sourceUriStr, destinationUriStr, includeSubfolders, mediaTypeFilter, enabledExtensions, onProgress).toList()
 
-        val directFile = File(sourceUriStr)
-        if (directFile.exists() && directFile.isDirectory) {
-            scanFilesystemDir(
-                dir = directFile,
-                destinationNormalized = normalizeUriOrPath(destinationUriStr),
-                includeSubfolders = includeSubfolders,
-                mediaTypeFilter = mediaTypeFilter,
-                enabledExtensions = normalizedExtensions,
-                results = results,
-                onProgress = onProgress
+    fun scanCandidates(
+        sourceUriStr: String, destinationUriStr: String, includeSubfolders: Boolean,
+        mediaTypeFilter: MediaTypeFilter, enabledExtensions: Set<String>,
+        onProgress: suspend (Int) -> Unit = {}
+    ): Flow<ScannedMediaCandidate> = flow {
+        require(sourceUriStr.isNotBlank()) { "Select a source directory." }
+        require(!isDestinationInsideSource(sourceUriStr, destinationUriStr)) { "Destination must be outside source." }
+        val extensions = enabledExtensions.map { it.lowercase(Locale.ROOT) }.toSet()
+        var discovered = 0
+        val localRoot = resolveLocalFile(sourceUriStr)
+        if (localRoot != null) {
+            require(localRoot.isDirectory && localRoot.canRead()) { "Source directory missing or unreadable." }
+            val pending = ArrayDeque<File>()
+            val visited = hashSetOf<String>()
+            pending.add(localRoot.canonicalFile)
+            while (pending.isNotEmpty()) {
+                currentCoroutineContext().ensureActive()
+                val directory = pending.removeLast()
+                if (!visited.add(directory.canonicalPath)) continue
+                val children = directory.listFiles() ?: throw IOException("Directory access failed: " + directory.path)
+                for (child in children) {
+                    currentCoroutineContext().ensureActive()
+                    if (Files.isSymbolicLink(child.toPath()) || child.name.startsWith(".aimediasorter-")) continue
+                    if (child.isDirectory) {
+                        if (includeSubfolders) pending.add(child)
+                    } else if (child.isFile) {
+                        val extension = child.extension.lowercase(Locale.ROOT)
+                        if (!included(extension, mediaTypeFilter, extensions)) continue
+                        val video = extension in DefaultCategories.SUPPORTED_VIDEO_EXTENSIONS
+                        val uri = Uri.fromFile(child)
+                        val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
+                            ?: if (video) "video/mp4" else "image/jpeg"
+                        onProgress(++discovered)
+                        emit(ScannedMediaCandidate(uri, child.canonicalPath, child.name, extension, video,
+                            mime, child.length(), child.lastModified(),
+                            uri.toString() + ":" + child.length() + ":" + child.lastModified()))
+                    }
+                }
+            }
+        } else {
+            val tree = Uri.parse(sourceUriStr)
+            val root = DocumentFile.fromTreeUri(context, tree)
+                ?.takeIf { it.isDirectory && it.canRead() } ?: error("Source SAF access was revoked.")
+            val pending = ArrayDeque<String>()
+            pending.add(DocumentsContract.getDocumentId(root.uri))
+            val visited = hashSetOf<String>()
+            val projection = arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_MIME_TYPE,
+                DocumentsContract.Document.COLUMN_SIZE,
+                DocumentsContract.Document.COLUMN_LAST_MODIFIED
             )
-            return results
-        }
-
-        val treeUri = Uri.parse(sourceUriStr)
-        val rootDoc = DocumentFile.fromTreeUri(context, treeUri)
-            ?: throw IllegalStateException("Revoked or invalid folder access for URI: $sourceUriStr")
-
-        scanDocumentTree(
-            dir = rootDoc,
-            destinationNormalized = normalizeUriOrPath(destinationUriStr),
-            includeSubfolders = includeSubfolders,
-            mediaTypeFilter = mediaTypeFilter,
-            enabledExtensions = normalizedExtensions,
-            results = results,
-            onProgress = onProgress
-        )
-        return results
-    }
-
-    private suspend fun scanFilesystemDir(
-        dir: File,
-        destinationNormalized: String,
-        includeSubfolders: Boolean,
-        mediaTypeFilter: MediaTypeFilter,
-        enabledExtensions: Set<String>,
-        results: MutableList<ScannedMediaCandidate>,
-        onProgress: suspend (Int) -> Unit
-    ) {
-        currentCoroutineContext().ensureActive()
-        val currentNormalized = normalizeUriOrPath(dir.absolutePath)
-        if (destinationNormalized.isNotEmpty() &&
-            (currentNormalized.equals(destinationNormalized, ignoreCase = true) ||
-             currentNormalized.startsWith("$destinationNormalized/", ignoreCase = true))
-        ) {
-            return // Never scan inside destination directory
-        }
-
-        val children = dir.listFiles() ?: return
-        for (child in children) {
-            currentCoroutineContext().ensureActive()
-            if (child.name.startsWith(".")) continue
-            if (child.isDirectory) {
-                if (includeSubfolders) {
-                    scanFilesystemDir(
-                        dir = child,
-                        destinationNormalized = destinationNormalized,
-                        includeSubfolders = true,
-                        mediaTypeFilter = mediaTypeFilter,
-                        enabledExtensions = enabledExtensions,
-                        results = results,
-                        onProgress = onProgress
-                    )
-                }
-            } else if (child.isFile && child.length() > 0L) {
-                val ext = child.extension.lowercase()
-                if (shouldIncludeExtension(ext, mediaTypeFilter, enabledExtensions)) {
-                    val isVideo = DefaultCategories.SUPPORTED_VIDEO_EXTENSIONS.contains(ext)
-                    val lastMod = child.lastModified()
-                    val size = child.length()
-                    val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
-                        ?: if (isVideo) "video/mp4" else "image/jpeg"
-                    results.add(
-                        ScannedMediaCandidate(
-                            uri = Uri.fromFile(child),
-                            filePath = child.absolutePath,
-                            fileName = child.name,
-                            extension = ext,
-                            isVideo = isVideo,
-                            mimeType = mime,
-                            fileSizeBytes = size,
-                            lastModifiedMs = lastMod,
-                            quickFingerprint = "${child.name}:$size:$lastMod"
-                        )
-                    )
-                    onProgress(results.size)
+            while (pending.isNotEmpty()) {
+                currentCoroutineContext().ensureActive()
+                val directoryId = pending.removeLast()
+                if (!visited.add(directoryId)) continue
+                val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(tree, directoryId)
+                val cursor = context.contentResolver.query(childrenUri, projection, null, null, null)
+                    ?: throw IOException("Provider did not return a directory listing.")
+                cursor.use {
+                    val idColumn = it.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+                    val nameColumn = it.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                    val mimeColumn = it.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
+                    val sizeColumn = it.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE)
+                    val timeColumn = it.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+                    while (it.moveToNext()) {
+                        currentCoroutineContext().ensureActive()
+                        val id = it.getString(idColumn)
+                        val name = it.getString(nameColumn) ?: continue
+                        if (name.startsWith(".aimediasorter-")) continue
+                        val mime = it.getString(mimeColumn).orEmpty()
+                        if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
+                            if (includeSubfolders) pending.add(id)
+                            continue
+                        }
+                        val extension = name.substringAfterLast('.', "").lowercase(Locale.ROOT)
+                        if (!included(extension, mediaTypeFilter, extensions)) continue
+                        val uri = DocumentsContract.buildDocumentUriUsingTree(tree, id)
+                        val size = if (it.isNull(sizeColumn)) 0L else it.getLong(sizeColumn)
+                        val modified = if (it.isNull(timeColumn)) 0L else it.getLong(timeColumn)
+                        onProgress(++discovered)
+                        emit(ScannedMediaCandidate(uri, null, name, extension,
+                            extension in DefaultCategories.SUPPORTED_VIDEO_EXTENSIONS,
+                            mime.ifBlank { if (extension in DefaultCategories.SUPPORTED_VIDEO_EXTENSIONS) "video/mp4" else "image/jpeg" },
+                            size, modified, uri.toString() + ":" + size + ":" + modified))
+                    }
                 }
             }
         }
-    }
+    }.buffer(32).flowOn(Dispatchers.IO)
 
-    private suspend fun scanDocumentTree(
-        dir: DocumentFile,
-        destinationNormalized: String,
-        includeSubfolders: Boolean,
-        mediaTypeFilter: MediaTypeFilter,
-        enabledExtensions: Set<String>,
-        results: MutableList<ScannedMediaCandidate>,
-        onProgress: suspend (Int) -> Unit
-    ) {
-        currentCoroutineContext().ensureActive()
-        val currentNormalized = normalizeUriOrPath(dir.uri.toString())
-        if (destinationNormalized.isNotEmpty() &&
-            (currentNormalized.equals(destinationNormalized, ignoreCase = true) ||
-             currentNormalized.startsWith("$destinationNormalized/", ignoreCase = true))
-        ) {
-            return
-        }
-
-        for (child in dir.listFiles()) {
-            currentCoroutineContext().ensureActive()
-            val name = child.name ?: continue
-            if (name.startsWith(".")) continue
-            if (child.isDirectory) {
-                if (includeSubfolders) {
-                    scanDocumentTree(
-                        dir = child,
-                        destinationNormalized = destinationNormalized,
-                        includeSubfolders = true,
-                        mediaTypeFilter = mediaTypeFilter,
-                        enabledExtensions = enabledExtensions,
-                        results = results,
-                        onProgress = onProgress
-                    )
-                }
-            } else if (child.isFile) {
-                val ext = name.substringAfterLast('.', "").lowercase()
-                val size = child.length()
-                if (size > 0L && shouldIncludeExtension(ext, mediaTypeFilter, enabledExtensions)) {
-                    val isVideo = DefaultCategories.SUPPORTED_VIDEO_EXTENSIONS.contains(ext)
-                    val lastMod = child.lastModified()
-                    val mime = child.type ?: if (isVideo) "video/mp4" else "image/jpeg"
-                    results.add(
-                        ScannedMediaCandidate(
-                            uri = child.uri,
-                            filePath = null,
-                            fileName = name,
-                            extension = ext,
-                            isVideo = isVideo,
-                            mimeType = mime,
-                            fileSizeBytes = size,
-                            lastModifiedMs = lastMod,
-                            quickFingerprint = "$name:$size:$lastMod"
-                        )
-                    )
-                    onProgress(results.size)
-                }
-            }
-        }
-    }
-
-    private fun shouldIncludeExtension(
-        ext: String,
-        filter: MediaTypeFilter,
-        enabledExtensions: Set<String>
-    ): Boolean {
-        if (ext.isBlank() || !enabledExtensions.contains(ext)) return false
-        val isPhoto = DefaultCategories.SUPPORTED_PHOTO_EXTENSIONS.contains(ext)
-        val isVideo = DefaultCategories.SUPPORTED_VIDEO_EXTENSIONS.contains(ext)
+    private fun included(extension: String, filter: MediaTypeFilter, enabled: Set<String>): Boolean {
+        if (extension !in enabled) return false
         return when (filter) {
-            MediaTypeFilter.ALL -> isPhoto || isVideo
-            MediaTypeFilter.PHOTOS_ONLY -> isPhoto
-            MediaTypeFilter.VIDEOS_ONLY -> isVideo
+            MediaTypeFilter.ALL -> extension in DefaultCategories.ALL_SUPPORTED_EXTENSIONS
+            MediaTypeFilter.PHOTOS_ONLY -> extension in DefaultCategories.SUPPORTED_PHOTO_EXTENSIONS
+            MediaTypeFilter.VIDEOS_ONLY -> extension in DefaultCategories.SUPPORTED_VIDEO_EXTENSIONS
         }
     }
 }

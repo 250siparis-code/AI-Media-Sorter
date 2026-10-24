@@ -25,7 +25,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            statusBarStyle = androidx.activity.SystemBarStyle.dark(android.graphics.Color.BLACK),
+            navigationBarStyle = androidx.activity.SystemBarStyle.dark(android.graphics.Color.BLACK)
+        )
         requestMediaPermissionsIfNeeded()
 
         setContent {
@@ -36,17 +39,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestMediaPermissionsIfNeeded() {
-        val perms = mutableListOf<String>()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            perms.add(Manifest.permission.READ_MEDIA_IMAGES)
-            perms.add(Manifest.permission.READ_MEDIA_VIDEO)
-            perms.add(Manifest.permission.POST_NOTIFICATIONS)
-        } else {
-            perms.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            androidx.core.content.ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+            != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            permissionLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            perms.add(Manifest.permission.ACCESS_MEDIA_LOCATION)
-        }
-        permissionLauncher.launch(perms.toTypedArray())
     }
 }

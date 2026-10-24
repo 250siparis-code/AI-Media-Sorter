@@ -2,44 +2,53 @@ package com.aimediasorter.app.data.model
 
 import kotlinx.serialization.Serializable
 
+@Serializable
 enum class MediaTypeFilter {
     ALL,
     PHOTOS_ONLY,
     VIDEOS_ONLY
 }
 
+@Serializable
 enum class OperationMode {
     ANALYSIS_ONLY, // Default safe mode: scans, classifies, previews, never moves or deletes
     MOVE_FILES     // Enabled explicitly when user confirms moving/copying files
 }
 
+@Serializable
 enum class TransferMethod {
     MOVE,
     COPY
 }
 
+@Serializable
 enum class CollisionPolicy {
     RENAME_WITH_SUFFIX,   // e.g., IMG_001_1.jpg
     SKIP_EXISTING,        // Leave existing file untouched and skip transfer
     VERIFY_HASH_AND_SKIP  // If SHA-256 matches, skip; otherwise rename with suffix
 }
 
+@Serializable
 enum class TimestampPolicy {
     BEST_EFFORT_WITH_REPORT,     // Attempt restore, verify, and clearly report if SAF blocked it
     FALLBACK_COPY_KEEP_ORIGINAL  // Non-destructive: if timestamp cannot be preserved on move, keep source file intact
 }
 
+@Serializable
 enum class AiEngineMode {
     HYBRID_ONNX_AND_MLKIT,
     ONNX_EMBEDDER_ONLY,
     CUSTOM_MOBILECLIP_ONNX
 }
 
+@Serializable
 enum class TransferItemStatus {
     PENDING,
     IN_PROGRESS,
     COMPLETED_VERIFIED,
     COMPLETED_TIMESTAMP_WARNING,
+    COMPLETED_SOURCE_RETAINED,
+    RECOVERY_REQUIRED,
     SKIPPED_COLLISION,
     FAILED,
     CANCELLED
@@ -58,14 +67,16 @@ data class FrameClassificationSample(
 data class ClassificationScoreMetrics(
     val categoryId: String,
     val categoryName: String,
-    val calibratedConfidence: Float, // Temperature-scaled probability in [0, 1]
-    val rawSimilarityScore: Float,   // Uncalibrated embedding cosine similarity in [-1, 1]
+    val calibratedConfidence: Float, // Legacy field name: raw model/diagnostic score, not measured accuracy.
+    val rawSimilarityScore: Float,   // Diagnostic ONNX cosine only; unavailable for ML Kit.
     val topMargin: Float,            // Difference between top-1 and top-2 calibrated score
     val secondaryCategoryName: String? = null,
     val isAmbiguousMultiScene: Boolean = false,
     val needsManualReview: Boolean = false,
     val primarySubjectNote: String = "",
-    val frameSamples: List<FrameClassificationSample> = emptyList()
+    val frameSamples: List<FrameClassificationSample> = emptyList(),
+    val modelLabels: Map<String, Float> = emptyMap(),
+    val inferenceEngine: String = "unknown"
 )
 
 data class DefaultCategorySpec(

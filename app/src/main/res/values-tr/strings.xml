@@ -18,14 +18,14 @@
     <string name="welcome_title">AI Media Sorter</string>
     <string name="welcome_description">Fotoğraf ve videolarınızı cihaz üzerinde analiz edin, sonuçları inceleyin ve dosyaları değiştirmeden Termux uyumlu betikler/manifestolar dışa aktarın veya güvenle klasörlere taşıyın.</string>
     <string name="feature_ai_title">Cihaz İçi Görsel Sınıflandırma</string>
-    <string name="feature_ai_desc">İş akışı doğrulaması için 10 KB sezgisel (heuristic) demo ONNX projeksiyon modeli, ML Kit Görüntü Etiketleme ve harici MobileCLIP ONNX model desteği içerir.</string>
+    <string name="feature_ai_desc">Gerçek ML Kit görüntü etiketleme işlemi cihazda çalışır. Belirsiz ve tanılama sonuçları inceleme gerektirir; puanlar ölçülmüş doğruluk oranı değildir.</string>
     <string name="feature_folders_title">Termux Betik ve Manifesto Dışa Aktarımı</string>
     <string name="feature_folders_desc">Varsayılan dry-run korumalı, SHA-256 doğrulamalı ve POSIX kaçışlı classification_report.csv, file_operations.json, move_files.sh ve copy_files.sh üretir.</string>
     <string name="feature_preserve_title">Zaman Damgası ve Birebir Kalite Koruma</string>
-    <string name="feature_preserve_desc">Orijinal dosya adlarını, EXIF verilerini, ham medya baytlarını (SHA-256 doğrulamalı) ve dosya sistemi değiştirilme tarihlerini korur.</string>
+    <string name="feature_preserve_desc">Medya baytlarını değiştirmeden kopyalar ve hedefi yeniden okuyarak SHA-256 ile doğrular. Değişiklik zamanı doğrulanamazsa varsayılan ilke özgün dosyaları korur.</string>
     <string name="welcome_mode_label">Aktif Çalışma Modu</string>
     <string name="mode_analysis_only">Analiz Modu (Varsayılan — Güvenli Önizleme ve Dışa Aktarım)</string>
-    <string name="mode_move_enabled">Taşıma Modu (Doğrulanmış Uygulama İçi Düzenleme)</string>
+    <string name="mode_move_enabled">Düzenleme Modu — işlemler onay gerektirir</string>
     <string name="btn_start_sorting">Medya Düzenlemeyi Başlat</string>
     <string name="btn_resume_results">Önceki Analizi Görüntüle (%1$d öğe)</string>
 
@@ -113,7 +113,7 @@
     <string name="badge_review">BELİRSİZ</string>
     <string name="badge_manual">MANUEL</string>
     <string name="badge_excluded">HARİÇ</string>
-    <string name="confidence_calibrated_fmt">Skor: %%%1$d (Benz: %2$.2f)</string>
+    <string name="confidence_calibrated_fmt">Model/sıralama puanı: %1$d%%</string>
     <string name="btn_proceed_transfer">Uygulama İçi Taşıma</string>
     <string name="btn_quick_reassign">Kategoriyi Değiştir</string>
     <string name="checkbox_include_export">Dışa Aktarıma Dahil Et</string>
@@ -129,7 +129,7 @@
     <string name="btn_export_op_move_sh">Taşıma Betiği (.sh)</string>
     <string name="btn_export_op_copy_sh">Kopyalama Betiği (.sh)</string>
     <string name="btn_export_op_all">Tümünü Dışa Aktar (4 Dosya)</string>
-    <string name="export_ops_result_banner">%1$s dizinine üretildi (%2$d dosya dahil edildi). Orijinal medya dosyaları TAŞINMADI veya değiştirilmedi.</string>
+    <string name="export_ops_result_banner">%2$d dosya dahil edildi. %1$s</string>
 
     <!-- Screen 6: Media Details -->
     <string name="details_title">Medya Detayları ve İnceleme</string>
@@ -142,7 +142,7 @@
     <string name="details_exif_none">Dosya içinde gömülü değil</string>
     <string name="details_detected_category">Atanan Kategori</string>
     <string name="details_confidence_metrics">Kalibre Edilmemiş Softmax Skoru: %%%1$d | Kosinüs Benzerliği: %2$.3f | Marj: %3$.3f</string>
-    <string name="details_confidence_note">Not: Sıcaklık ölçekli softmax skorları ve kosinüs benzerliği sezgisel sıralama değerleridir; deneysel olarak kalibre edilmiş olasılık değildir.</string>
+    <string name="details_confidence_note">Puanlar ölçülmüş doğruluk değildir. ML Kit etiketleri görüntü/metin kosinüs benzerliği üretmez. ONNX tanılama puanları her zaman inceleme gerektirir.</string>
     <string name="details_video_frames_title">Çoklu Video Karesi Sınıflandırma Dağılımı</string>
     <string name="details_ambiguous_video_warning">Farklı zaman dilimlerinde birden fazla bağımsız sahne tespit edildi. Lütfen kategoriyi doğrulayın.</string>
     <string name="btn_change_category">Kategoriyi Manuel Değiştir</string>
@@ -150,16 +150,16 @@
 
     <!-- Screen 7: File Transfer -->
     <string name="transfer_title">Güvenli Dosya Taşıma</string>
-    <string name="transfer_analysis_mode_banner">Analiz Modu Aktif: Siz onay verene veya Taşıma Moduna geçene kadar hiçbir dosya taşınmaz.</string>
+    <string name="transfer_analysis_mode_banner">Analiz Modu etkin. İşlem onaylamadan önce Ayarlar üzerinden Düzenleme Modunu etkinleştirin.</string>
     <string name="transfer_stat_total">Toplam Analiz</string>
     <string name="transfer_stat_ready">Taşınmaya Hazır</string>
     <string name="transfer_stat_review">İnceleme Bekleyen</string>
     <string name="transfer_stat_excluded">Hariç Tutulan</string>
     <string name="transfer_proposed_structure">Önerilen Hedef Klasör Yapısı</string>
-    <string name="transfer_safety_checklist">İşlem Güvenliği Garantileri: SHA-256 bütünlük doğrulaması • Çakışma koruması • Orijinal zaman damgası kontrolü</string>
+    <string name="transfer_safety_checklist">Hedefi yeniden okuyarak doğrulama • Kaynak değişikliği kontrolü • Çakışma koruması • Ayrı değişiklik zamanı doğrulaması</string>
     <string name="btn_start_transfer">Onayla ve Aktarımı Başlat</string>
     <string name="dialog_confirm_transfer_title">Dosya İşlemini Onayla</string>
-    <string name="dialog_confirm_transfer_msg">%2$d dosya ilgili kategori klasörlerine (%1$s) aktarılacak. SHA-256 doğrulaması ve zaman damgası kontrolü tamamlanmadan orijinal dosyalar asla silinmez.</string>
+    <string name="dialog_confirm_transfer_msg">%2$d dosya kategorilere göre %1$s işlemiyle düzenlenecek. Özgün dosyalar yalnızca hedef SHA-256 doğrulaması ve depolama güvenlik kontrolleri sonrasında silinir. Özgünü koruma ilkesi, değişiklik zamanı doğrulanamazsa kaynağı saklar.</string>
     <string name="transfer_result_summary">Başarılı: %1$d | Zaman Damgası Korunan: %2$d | Çakışma Çözülen: %3$d | Hata: %4$d</string>
 
     <!-- Screen 8: Settings -->
@@ -171,10 +171,10 @@
     <string name="settings_amoled_mode">Saf Siyah AMOLED Tema (#000000)</string>
     <string name="settings_section_ai">Cihaz İçi Yapay Zeka Modeli</string>
     <string name="settings_ai_engine">Aktif Yapay Zeka Motoru</string>
-    <string name="ai_engine_hybrid">Hibrit Demo ONNX + ML Kit Görüntü Etiketleme (Çevrimdışı)</string>
-    <string name="ai_engine_onnx_only">Yalnızca Gömülü 10 KB Sezgisel Demo ONNX Modeli</string>
+    <string name="ai_engine_hybrid">Cihaz üzerinde ML Kit görüntü etiketleme (çevrimdışı)</string>
+    <string name="ai_engine_onnx_only">ONNX gösterim modeli — elle inceleme zorunlu</string>
     <string name="ai_engine_custom_clip">Harici MobileCLIP ONNX Modeli</string>
-    <string name="settings_model_info">Gömülü Varlık: media_visual_embedder.onnx (10 KB Sezgisel/Demo Projeksiyon Modeli, Apache-2.0 — tam anlamsal tanıma için MobileCLIP ONNX içe aktarın)</string>
+    <string name="settings_model_info">Otomatik kategoriler paketlenmiş ML Kit modelini kullanır. Özel açıklamalar etiket anahtar sözcükleriyle eşleştirilir. Küçük ONNX modeli yalnızca tanılama içindir; MobileCLIP içe aktarma desteklenmez.</string>
     <string name="btn_import_custom_onnx">Harici .onnx Model Dosyası İçe Aktar (MobileCLIP)</string>
     <string name="settings_hw_accel">NNAPI Donanım Hızlandırmayı Etkinleştir (destekleniyorsa)</string>
     <string name="settings_confidence_threshold">Minimum Kalibre Edilmemiş Skor Eşiği: %%%1$d</string>
@@ -192,4 +192,30 @@
     <string name="btn_export_json">file_operations.json Dışa Aktar</string>
     <string name="export_success_fmt">Dışa aktarıldı: %1$s</string>
     <string name="history_empty">Henüz tamamlanmış bir işlem kaydı bulunmuyor.</string>
+    <string name="settings_operation_mode">Çalışma modu</string>
+    <string name="export_save_zip">Dışa aktarma ZIP dosyasını kaydet</string>
+    <string name="export_ready">Dışa aktarma hazır. Uygulama dışında kullanmak için ZIP dosyasını kaydedin.</string>
+    <string name="progress_discovering">Medya bulunuyor ve analiz ediliyor</string>
+    <string name="progress_failed">Analiz tamamlanamadı</string>
+    <string name="progress_cancelled">İşlem iptal edildi</string>
+    <string name="progress_ready">Analize hazır</string>
+    <string name="action_failed">İşlem tamamlanamadı. Klasör erişimini ve ayarları kontrol edip yeniden deneyin.</string>
+    <string name="timestamp_unavailable">Dosya sistemi değişiklik zamanı bilinmiyor</string>
+    <string name="transfer_status_notice">Kesintiye uğrayan işlemi yeniden denemeden önce sonuçları inceleyin.</string>
+    <string name="transfer_retained_fmt">Korunan özgün dosyalar: %1$d • Atlanan çakışmalar: %2$d</string>
+    <string name="details_model_score">Model puanı: %1$d%% | İlk iki sonuç farkı: %2$.3f</string>
+    <string name="details_unavailable">Bu öğe mevcut kaynakta bulunamıyor.</string>
+    <string name="btn_back">Geri</string>
+    <string name="export_saved">Dışa aktarım kaydedildi.</string>
+    <string name="metadata_access_notice">Özgün dosya aktarımı, medya konum bilgilerine erişim izni gerektirebilir. Bu izin dosyanın içindeki bilgileri korur; konum toplanmaz veya yüklenmez. Erişim yoksa özgün dosyalar korunur ve aktarım engellenir.</string>
+    <string name="history_session_fmt">%1$d/%2$d dosya analiz edildi • İnceleme: %3$d</string>
+    <string name="category_display_people">İnsanlar</string>
+    <string name="category_display_food">Yiyecekler</string>
+    <string name="category_display_vehicles">Araçlar</string>
+    <string name="category_display_animals">Hayvanlar</string>
+    <string name="category_display_nature">Doğa</string>
+    <string name="category_display_buildings">Binalar</string>
+    <string name="category_display_technology">Teknoloji</string>
+    <string name="category_display_text">Metin</string>
+    <string name="category_display_other">Diğer</string>
 </resources>
