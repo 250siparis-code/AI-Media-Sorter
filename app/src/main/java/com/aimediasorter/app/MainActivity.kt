@@ -18,7 +18,10 @@ class MainActivity : AppCompatActivity() {
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ ->
+    ) { result ->
+        com.aimediasorter.app.data.diagnostics.Diagnostics.operation(com.aimediasorter.app.domain.diagnostics.DiagnosticKind.PERMISSION)
+            .event(com.aimediasorter.app.domain.diagnostics.DiagnosticStage.PERMISSION_CHECK,
+                if(result.values.all { it }) com.aimediasorter.app.domain.diagnostics.DiagnosticStatus.SUCCEEDED else com.aimediasorter.app.domain.diagnostics.DiagnosticStatus.FAILED)
         // Storage Access Framework (OpenDocumentTree) works even without broad media permissions,
         // while READ_MEDIA_IMAGES / VIDEO + ACCESS_MEDIA_LOCATION preserve unredacted EXIF tags.
     }

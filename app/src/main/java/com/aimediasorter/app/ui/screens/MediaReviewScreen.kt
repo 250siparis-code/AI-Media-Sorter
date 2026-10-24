@@ -1,5 +1,7 @@
 package com.aimediasorter.app.ui.screens
 
+import com.aimediasorter.app.data.diagnostics.Diagnostics
+import com.aimediasorter.app.domain.diagnostics.*
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
@@ -52,10 +54,20 @@ import java.util.Date
         Text(stringResource(R.string.virtual_only_notice),style=MaterialTheme.typography.bodySmall)
         Text(stringResource(R.string.virtual_suggestions)+": "+proposed.mapNotNull { id->categories.firstOrNull { it.id==id } }.joinToString { it.name })
         if(analysis!=null) {
-            Text(analysis.reason)
+            Text(analysis.category_decision_reason ?: analysis.reason)
+            if(analysis.primary_subject!=null) {
+                Text(stringResource(R.string.virtual_primary_subject)+": "+analysis.primary_subject,modifier=Modifier.testTag("analysis-primary-subject"))
+                analysis.independently_significant_secondary_subjects.forEach { subject ->
+                    val category=categories.firstOrNull { it.id==subject.category }
+                    Text(stringResource(R.string.virtual_significant_subject)+": "+subject.description+
+                        (category?.let { " ("+categoryDisplayName(it.id,it.name)+")" } ?: ""))
+                    Text(subject.significance_reason,style=MaterialTheme.typography.bodySmall)
+                }
+                if(analysis.contextual_objects.isNotEmpty()) Text(stringResource(R.string.virtual_context_only)+": "+
+                    analysis.contextual_objects.joinToString(" • "),modifier=Modifier.testTag("analysis-context-only"))
+            } else analysis.subjects.forEach { Text("• "+it.description+" ("+it.importance+")") }
             if(analysis.pose.isNotBlank()) Text(stringResource(R.string.virtual_pose)+": "+analysis.pose)
             if(analysis.scene.isNotBlank()) Text(stringResource(R.string.virtual_scene)+": "+analysis.scene)
-            analysis.subjects.forEach { Text("• "+it.description+" ("+it.importance+")") }
             if(analysis.details.isNotEmpty()) Text(analysis.details.joinToString(" • "))
         } else if(item.primarySubjectNote.isNotBlank()) Text(item.primarySubjectNote,color=StatusAmber)
         AnalysisDiagnosticDetails(item.diagnosticCode,item.apiRequestsSent,item.requestReservations,item.responseHttpStatus)
@@ -92,6 +104,8 @@ import java.util.Date
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable fun FullMediaViewer(item: MediaItemEntity,onDismiss: ()->Unit) {
     val context=LocalContext.current
+    val diagnostic=remember(item.id) { Diagnostics.operation(DiagnosticKind.GALLERY) }
+    LaunchedEffect(item.id) { diagnostic.event(DiagnosticStage.FULLSCREEN_OPEN) }
     var scale by remember { mutableFloatStateOf(1f) }
     var x by remember { mutableFloatStateOf(0f) };var y by remember { mutableFloatStateOf(0f) }
     var error by remember { mutableStateOf(false) }
@@ -102,7 +116,7 @@ import java.util.Date
     Dialog(onDismissRequest=onDismiss,properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)) {
         Box(Modifier.fillMaxSize().semantics { testTagsAsResourceId=true }.testTag("full-media-viewer").background(AmoledPureBlack).windowInsetsPadding(WindowInsets.safeDrawing)) {
             AsyncImage(request,contentDescription=if(loaded) item.fileName else null,contentScale=ContentScale.Fit,
-                onSuccess={loaded=true;error=false},onError={error=true;loaded=false},modifier=Modifier.fillMaxSize().pointerInput(Unit) {
+                onSuccess={loaded=true;error=false;diagnostic.event(DiagnosticStage.FULLSCREEN_OPEN,DiagnosticStatus.SUCCEEDED)},onError={error=true;loaded=false;diagnostic.event(DiagnosticStage.FULLSCREEN_OPEN,DiagnosticStatus.FAILED)},modifier=Modifier.fillMaxSize().pointerInput(Unit) {
                     detectTransformGestures { _,pan,zoom,_ ->
                         scale=(scale*zoom).coerceIn(1f,5f)
                         x=if(scale==1f) 0f else (x+pan.x).coerceIn(-3000f,3000f)

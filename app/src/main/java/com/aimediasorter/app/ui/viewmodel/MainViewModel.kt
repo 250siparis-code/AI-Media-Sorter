@@ -1,5 +1,7 @@
 package com.aimediasorter.app.ui.viewmodel
 
+import com.aimediasorter.app.data.diagnostics.*
+import com.aimediasorter.app.domain.diagnostics.*
 import android.app.Application
 import android.content.Intent
 import android.net.Uri
@@ -59,6 +61,70 @@ import java.util.UUID
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repo = (application as AIMediaSorterApp).repository
+    private val diagnosticLog=(application as AIMediaSorterApp).diagnostics
+    private val _historicalDiagnostics=MutableStateFlow(DiagnosticSnapshot())
+    val diagnosticsState=combine(diagnosticLog.recent,_historicalDiagnostics) { current,historical ->
+        current.copy(events=(current.events+historical.events).sortedByDescending { it.timestampMs }.take(200),
+            summaries=(current.summaries+historical.summaries).distinctBy { it.batchId }.sortedByDescending { it.timestampMs }.take(20))
+    }.stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),DiagnosticSnapshot())
+    private val _diagnosticExport=MutableStateFlow("IDLE")
+    val diagnosticExport=_diagnosticExport.asStateFlow()
+    private val _diagnosticPreview=MutableStateFlow<PreparedDiagnosticExport?>(null)
+    val diagnosticPreview=_diagnosticPreview.asStateFlow()
+    private var diagnosticPreparation: Job?=null
+    fun prepareDiagnostics(scope: DiagnosticScope,format: DiagnosticFormat) {
+        if(_diagnosticExport.value in setOf("SAVING","PREPARING","CLEARING")) return
+        _diagnosticExport.value="PREPARING"
+        diagnosticPreparation=viewModelScope.launch(Dispatchers.IO) {
+            try {
+                var historicalToPublish: DiagnosticSnapshot?=null
+                var snapshot=try { diagnosticLog.snapshot() } catch(cancelled: CancellationException) { throw cancelled }
+                    catch(_: Exception) { diagnosticLog.recent.value }
+                if(scope==DiagnosticScope.LAST_ANALYSIS) {
+                    val stored=try { repo.storedAnalysisDiagnostics(diagnosticLog.lastClearedAt(),
+                        (snapshot.summaries+snapshot.events).mapNotNull { it.sessionId }.toSet()) }
+                        catch(cancelled: CancellationException) { throw cancelled }
+                        catch(_: Exception) { null }
+                    if(stored!=null) {
+                        historicalToPublish=stored.second
+                        snapshot=snapshot.copy(events=snapshot.events+stored.second.events,summaries=snapshot.summaries+stored.second.summaries)
+                    }
+                }
+                val prepared=DiagnosticExport.prepare(snapshot,scope,format,
+                    DiagnosticEnvironment(com.aimediasorter.app.BuildConfig.VERSION_NAME,com.aimediasorter.app.BuildConfig.VERSION_CODE,
+                        android.os.Build.VERSION.RELEASE,android.os.Build.VERSION.SDK_INT,android.os.Build.MODEL))
+                // Main-thread publication is ordered with Clear, and this dispatcher switch
+                // discards a cancelled preparation before it can restore cleared history.
+                withContext(Dispatchers.Main.immediate) {
+                    historicalToPublish?.let { _historicalDiagnostics.value=it }
+                    _diagnosticPreview.value=prepared
+                    _diagnosticExport.value="IDLE"
+                }
+            } catch(cancelled: CancellationException) { if(_diagnosticExport.value=="PREPARING") _diagnosticExport.value="IDLE";throw cancelled }
+            catch(error: IllegalArgumentException) { _diagnosticExport.value="NO_REPORT" }
+            catch(_: Exception) { _diagnosticExport.value="FAILED" }
+        }
+    }
+    fun dismissDiagnosticPreview() { _diagnosticPreview.value=null }
+    fun clearDiagnostics() {
+        diagnosticPreparation?.cancel()
+        _diagnosticExport.value="CLEARING"
+        viewModelScope.launch(Dispatchers.IO) {
+            try { diagnosticLog.clear();_historicalDiagnostics.value=DiagnosticSnapshot();_diagnosticPreview.value=null;_diagnosticExport.value="CLEARED" }
+            catch(_: Exception) { _diagnosticExport.value="FAILED" }
+        }
+    }
+    fun exportDiagnostics(uri: Uri) {
+        val prepared=_diagnosticPreview.value ?: return
+        if(_diagnosticExport.value=="SAVING") return
+        _diagnosticExport.value="SAVING"
+        viewModelScope.launch(Dispatchers.IO) {
+            try { diagnosticLog.export(getApplication(),uri,prepared);_diagnosticExport.value="SAVED";_diagnosticPreview.value=null }
+            catch(cancelled: CancellationException) { _diagnosticExport.value="IDLE";throw cancelled }
+            catch(_: Exception) { _diagnosticExport.value="FAILED" }
+        }
+    }
+    fun diagnosticsOpened() { Diagnostics.operation(DiagnosticKind.GALLERY).event(DiagnosticStage.GALLERY_OPEN) }
     private val settingsRepo = repo.settingsRepository
     private val workManager = WorkManager.getInstance(application)
 
@@ -401,6 +467,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun cancelAnalysis() {
+        Diagnostics.operation(DiagnosticKind.USER_ACTION).event(DiagnosticStage.CANCELLED,DiagnosticStatus.CANCELLED)
         workManager.cancelUniqueWork(MediaAnalysisWorker.WORK_NAME)
         launchSafely { repo.cloud.state.revokeAll(); repo.setAnalysisPaused(false); refreshCloudLocalState() }
     }
@@ -433,6 +500,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun cancelTransfers() {
+        Diagnostics.operation(DiagnosticKind.OPERATION_PLAN).event(DiagnosticStage.CANCELLED,DiagnosticStatus.CANCELLED)
         workManager.cancelUniqueWork(MediaTransferWorker.WORK_NAME)
         launchSafely { repo.cancelPhysicalPlans() }
     }
@@ -521,12 +589,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun launchSafely(block: suspend () -> Unit): Job =
         viewModelScope.launch(Dispatchers.IO) {
-            try { block() }
+            try { diagnosed(DiagnosticKind.USER_ACTION) { block() } }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) { _exportStatusMessage.value = "ERROR:" + error.message }
         }
 
     private fun persistUriPermission(uri: Uri, requireWrite: Boolean) {
+        val operation=Diagnostics.operation(DiagnosticKind.PERMISSION)
+        try {
         val resolver = getApplication<Application>().contentResolver
         resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         val document = DocumentFile.fromTreeUri(getApplication(), uri) ?: error("Invalid folder.")
@@ -540,5 +610,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         require(resolver.persistedUriPermissions.any {
             it.uri == uri && it.isReadPermission && (!requireWrite || it.isWritePermission)
         }) { "Persistent folder permission was not granted." }
+        operation.event(DiagnosticStage.PERMISSION_CHECK,DiagnosticStatus.SUCCEEDED)
+        } catch(error: Exception) { operation.failure(error);throw error }
     }
 }

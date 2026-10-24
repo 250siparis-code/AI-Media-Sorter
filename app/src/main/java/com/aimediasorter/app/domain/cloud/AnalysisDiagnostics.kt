@@ -54,13 +54,21 @@ enum class AnalysisCode(val stage: String,val message: String) {
  * A failure before that point may still have uploaded part of the body.
  * Reservations are deliberately separate. Counters are local and contain no media identity.
  */
-class CloudRequestTrace(private val onSent: ()->Unit = {}) {
+class CloudRequestTrace(val diagnostic: com.aimediasorter.app.domain.diagnostics.DiagnosticOperation?=null,private val onSent: ()->Unit = {}) {
     private val sent=AtomicInteger()
     var reservations: Int=0
         private set
     var httpStatus: Int=0
         internal set
     val requestsSent get()=sent.get()
-    fun reserved() { reservations++ }
-    fun bodySent() { sent.incrementAndGet();onSent() }
+    fun reserved() { reservations++
+        diagnostic?.event(com.aimediasorter.app.domain.diagnostics.DiagnosticStage.RESERVATION,
+            metrics=mapOf(com.aimediasorter.app.domain.diagnostics.DiagnosticMetric.RESERVATIONS to reservations.toLong()))
+    }
+    fun bodySent() { sent.incrementAndGet()
+        diagnostic?.event(com.aimediasorter.app.domain.diagnostics.DiagnosticStage.REQUEST_SENT,
+            com.aimediasorter.app.domain.diagnostics.DiagnosticStatus.SUCCEEDED,
+            metrics=mapOf(com.aimediasorter.app.domain.diagnostics.DiagnosticMetric.REQUESTS_SENT to requestsSent.toLong()))
+        onSent()
+    }
 }

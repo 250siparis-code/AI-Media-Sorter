@@ -153,19 +153,22 @@ fun AIMediaSorterNavHost(viewModel: MainViewModel) {
                         viewModel.cancelAnalysis()
                         navController.popBackStack()
                     },
-                    onViewResults = { navController.navigate(ScreenRoute.AnalysisResults.route) }
+                    onViewResults = { navController.navigate(ScreenRoute.AnalysisResults.route) },
+                    onExportReport = { navController.navigate("diagnostics");viewModel.prepareDiagnostics(com.aimediasorter.app.domain.diagnostics.DiagnosticScope.LAST_ANALYSIS,com.aimediasorter.app.domain.diagnostics.DiagnosticFormat.JSON) }
                 )
             }
 
             composable(ScreenRoute.AnalysisResults.route) {
                 VirtualGalleryScreen(mediaItems,categories,galleryLinks,
+                    onDiagnostics={navController.navigate("diagnostics");viewModel.prepareDiagnostics(com.aimediasorter.app.domain.diagnostics.DiagnosticScope.LAST_ANALYSIS,com.aimediasorter.app.domain.diagnostics.DiagnosticFormat.JSON)},
                     onInspect={navController.navigate(ScreenRoute.MediaDetails.createRoute(it))},
                     onCorrect=viewModel::updateVirtualCategories,onReanalyze=viewModel::requestReanalysis,
                     onOrganize={operationIds=it},onAnalyze={navController.navigate(ScreenRoute.SourceDestination.route)},
                     onAdvanced={navController.navigate(ScreenRoute.AdvancedResults.route)})
             }
             composable(ScreenRoute.Review.route) {
-                VirtualGalleryScreen(mediaItems,categories,galleryLinks,initialFolder="__review__",
+                VirtualGalleryScreen(mediaItems,categories,galleryLinks,
+                    onDiagnostics={navController.navigate("diagnostics");viewModel.prepareDiagnostics(com.aimediasorter.app.domain.diagnostics.DiagnosticScope.LAST_ANALYSIS,com.aimediasorter.app.domain.diagnostics.DiagnosticFormat.JSON)},initialFolder="__review__",
                     onInspect={navController.navigate(ScreenRoute.MediaDetails.createRoute(it))},
                     onCorrect=viewModel::updateVirtualCategories,onReanalyze=viewModel::requestReanalysis,
                     onOrganize={operationIds=it},onAnalyze={navController.navigate(ScreenRoute.SourceDestination.route)},
@@ -209,6 +212,14 @@ fun AIMediaSorterNavHost(viewModel: MainViewModel) {
                     onDestination={navController.navigate(ScreenRoute.SourceDestination.route)})
             }
 
+            composable("diagnostics") {
+                val diagnostics by viewModel.diagnosticsState.collectAsStateWithLifecycle()
+                val diagnosticExport by viewModel.diagnosticExport.collectAsStateWithLifecycle()
+                val diagnosticPreview by viewModel.diagnosticPreview.collectAsStateWithLifecycle()
+                LaunchedEffect(Unit) { viewModel.diagnosticsOpened() }
+                DiagnosticsScreen(diagnostics,diagnosticExport,diagnosticPreview,viewModel::prepareDiagnostics,viewModel::exportDiagnostics,
+                    viewModel::dismissDiagnosticPreview,viewModel::clearDiagnostics) { navController.popBackStack() }
+            }
             composable(ScreenRoute.Settings.route) {
                 SettingsScreen(
                     settings = settings,
@@ -231,7 +242,8 @@ fun AIMediaSorterNavHost(viewModel: MainViewModel) {
                     canSaveExport = lastTermuxExport != null,
                     onSaveExport = viewModel::saveLastExport,
                     onExportCsv = viewModel::exportCsvReport,
-                    onExportJson = viewModel::exportJsonReport
+                    onExportJson = viewModel::exportJsonReport,
+                    onDiagnostics = { navController.navigate("diagnostics") }
                 )
             }
         }
