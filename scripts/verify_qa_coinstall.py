@@ -14,7 +14,7 @@ for package in packages:
     rows = adb('shell', 'cmd', 'package', 'list', 'packages', '-U', package).splitlines()
     found = [re.fullmatch(r'package:' + re.escape(package) + r'\s+uid:(\d+)', row.strip()) for row in rows]
     found = [match for match in found if match]
-    assert len(found) == 1, 'Required co-installed package is missing'
+    assert len(found) == 1, 'Required co-installed fixture package is missing: ' + package
     uids.append(int(found[0].group(1)))
 assert uids[0] != uids[1], 'QA and debug must use separate application UIDs'
 assert adb('shell', 'run-as', packages[0], 'cat', 'files/qa-coinstall-sentinel.txt') == 'AIMS_QA_CO_INSTALL_SENTINEL', 'Existing test app private data was not retained'

@@ -52,4 +52,14 @@ The native runner must preserve the original Gradle exit status while collecting
 
 ## Remaining conclusion
 
+## Recovery-run recurrence
+
+Recovery commit `b93dc93` was tested in push run [40136971532](https://github.com/BlackWare-AI/AI-Media-Sorter/actions/runs/40136971532) and PR run [40137030466](https://github.com/BlackWare-AI/AI-Media-Sorter/actions/runs/40137030466). Push job [121000436614](https://github.com/BlackWare-AI/AI-Media-Sorter/actions/runs/40136971532/job/121000436614) reproduced SIGSEGV at PC zero through Compose JIT placement/AndroidComposeView during `VirtualGalleryUiTest.virtualFolderOpensRealThumbnailAndFullScreenPreview` (68 tests, 1 failure, 1 explicitly unconfigured live-test skip). The matching PR debug profile passed. This recurrence is retained as a failure, not erased by the later fixture correction.
+
+The new snapshot confirms the same API35 fingerprint, libart BuildId and emulator build above, active ART APEX `com.google.android.art` version `352090000`, actual 16384-byte pages and JIT enabled. Google Play Services also crashed in ART ResolveMethod/OptimizingCompiler/JitCompile at 22:08:56 UTC, before the application's crash at 22:12:12 UTC. This cross-process evidence strengthens the runtime/image investigation but does not establish an application-independent root cause or an ARM64 device fix. API36 debug comparisons passed; they do not replace API35 acceptance.
+
+All first-run release jobs passed their instrumentation suites but subsequently failed the newly added co-install check because the instrumentation target was removed at teardown. The next commit corrects that fixture by installing QA explicitly after instrumentation; it changes no application class, library, JIT setting, model or transfer algorithm. New CI after that code change is required and is not presented as a remedy for the unrelated intermittent crash.
+
+## Open evidence gate
+
 The historical issue remains **HIGH / root cause unverified** until it is reproduced and isolated or supported by a demonstrated platform fix. A new passing matrix improves current verification evidence but does not retroactively determine why those failures occurred. Physical ARM64/16KB acceptance remains distinct from emulator ELF-alignment checks.
