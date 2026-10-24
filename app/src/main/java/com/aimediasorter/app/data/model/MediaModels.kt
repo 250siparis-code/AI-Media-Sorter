@@ -80,7 +80,11 @@ data class ClassificationScoreMetrics(
     val proposedCategoryIds: List<String> = emptyList(),
     val analysisJson: String = "{}",
     val analysisStatus: String = "LEGACY",
-    val analysisModel: String = ""
+    val analysisModel: String = "",
+    val diagnosticCode: String = "UNRECORDED",
+    val apiRequestsSent: Int = -1,
+    val requestReservations: Int = -1,
+    val responseHttpStatus: Int = 0
 )
 
 data class DefaultCategorySpec(

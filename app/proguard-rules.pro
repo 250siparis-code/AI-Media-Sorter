@@ -39,3 +39,11 @@
 # AndroidComposeTestRule's Activity bound is supplied by the target app.
 -keep class androidx.activity.ComponentActivity { *; }
 -keep class androidx.activity.ComponentActivity$* { *; }
+
+# The separate instrumentation APK renders the real progress UI. Keep its narrow
+# entry-point ABI, including Activity's Kotlin default bridge. All other app UI
+# classes and unused EXIF-writing APIs remain eligible for shrinking/optimization.
+-keep class androidx.activity.compose.ComponentActivityKt { *; }
+-keep class com.aimediasorter.app.ui.theme.ThemeKt { *; }
+-keep class com.aimediasorter.app.ui.screens.AnalysisProgressScreenKt { *; }
+-keep class com.aimediasorter.app.ui.screens.AnalysisDiagnosticUiKt { *; }

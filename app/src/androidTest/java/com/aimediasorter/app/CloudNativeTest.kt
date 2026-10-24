@@ -135,6 +135,28 @@ class CloudNativeTest {
         assertTrue("Round launcher resource must survive shrinking.",round!=0)
         assertNotNull(context.getDrawable(round))
     }
+    @Test fun cloudSchemaTwoUpgradesAndSentCountsSurviveRestartSeparatelyFromReservations() {
+        val name="cloud-migration-"+UUID.randomUUID()+".db"
+        var state=CloudStateStore(context,name)
+        try {
+            state.replaceModels(3,listOf(options.model))
+            val batch=state.authorize("fixture",3,options)
+            state.close()
+            android.database.sqlite.SQLiteDatabase.openDatabase(context.getDatabasePath(name).path,null,
+                android.database.sqlite.SQLiteDatabase.OPEN_READWRITE).use { db ->
+                db.execSQL("DROP TABLE request_counts");db.version=2
+            }
+            state=CloudStateStore(context,name)
+            assertEquals(listOf(options.model),state.models(3))
+            state.reserve(batch,"fixture",3,traceKey="opaque-test-fingerprint")
+            assertEquals(0,state.sentInBatch(batch))
+            state.recordSent(batch,"opaque-test-fingerprint")
+            state.close();state=CloudStateStore(context,name)
+            assertEquals(1,state.sentInBatch(batch))
+            assertTrue(state.usage().startsWith("1 /"))
+        } finally { state.close();context.deleteDatabase(name) }
+    }
+
     /** NEVER enabled by CI. The operator must configure BYOK/model in app settings first.
      * Uses a synthetic JPEG only. This verifies live protocol, not semantic accuracy.
      */

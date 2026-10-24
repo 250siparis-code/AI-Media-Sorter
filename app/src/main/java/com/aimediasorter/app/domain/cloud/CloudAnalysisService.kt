@@ -65,16 +65,19 @@ class CloudAnalysisService(context: Context,
         state.recordUsage(result)
         state.markModelVerified(credential.revision,options.model)
     }
-    suspend fun analyze(settings: AppSettings,batch: String,signature: String,originalHash: String?,
+    suspend fun analyze(settings: AppSettings,batch: String,signature: String,analysisFingerprint: String?,
         categories: List<CategoryEntity>,uri: Uri,path: String?,isVideo: Boolean,orientation: Int,mirrored: Boolean,
         force: Boolean=false,liveCheck: suspend ()->Unit): ClassificationScoreMetrics {
         val o=settings.cloudOptions
         var cacheKey=""
+        val trace=CloudRequestTrace { state.recordSent(batch,cacheKey) }
+        var reused=false
         try {
-            if(originalHash==null) throw CloudFailure(CloudErrorKind.CONSENT)
+            if(analysisFingerprint==null) throw CloudFailure(CloudErrorKind.RESPONSE,AnalysisCode.LOCAL_SOURCE_ACCESS)
             if(!o.ready() || o.model !in state.models(vault.revision) || !state.modelVerified(vault.revision,o.model)) throw CloudFailure(CloudErrorKind.CONFIG)
-            cacheKey=digest(originalHash+";"+vault.revision+";"+o.model+";"+o.maxOutputTokens+";"+orientation+";"+mirrored+";"+isVideo+";"+CloudProtocol.VERSION+";"+CloudProtocol.categories(categories))
+            cacheKey=digest(analysisFingerprint+";"+vault.revision+";"+o.model+";"+o.maxOutputTokens+";"+orientation+";"+mirrored+";"+isVideo+";"+CloudProtocol.VERSION+";"+CloudProtocol.categories(categories))
             var decision=if(force) null else state.cached(cacheKey)
+            reused=decision!=null
             var sampledTimes=""
             if(decision==null) {
                 if(batch.isBlank()) throw CloudFailure(CloudErrorKind.CONSENT)
@@ -84,10 +87,12 @@ class CloudAnalysisService(context: Context,
                 val images=encoder.images(uri,path,isVideo,orientation,mirrored)
                 sampledTimes=images.mapNotNull { it.timestampMs }.joinToString(",")
                 val credential=try { vault.snapshot() } catch(_: Exception) { throw CloudFailure(CloudErrorKind.AUTH) }
-                var response=client.classify(credential.secret,o,categories,images) {
+                var response=client.classify(credential.secret,o,categories,images,trace) {
                     liveCheck()
                     if(vault.revision!=credential.revision) throw CloudFailure(CloudErrorKind.CONSENT)
-                    kotlinx.coroutines.delay(state.reserve(batch,signature,credential.revision,o.minimumIntervalSeconds*1000L))
+                    val wait=state.reserve(batch,signature,credential.revision,o.minimumIntervalSeconds*1000L,cacheKey)
+                    trace.reserved()
+                    kotlinx.coroutines.delay(wait)
                     liveCheck()
                     if(vault.revision!=credential.revision) throw CloudFailure(CloudErrorKind.CONSENT)
                 }
@@ -97,7 +102,8 @@ class CloudAnalysisService(context: Context,
                 state.complete(batch,cacheKey,response);decision=response.decision
             }
             val result=decision ?: throw CloudFailure(CloudErrorKind.RESPONSE)
-            require(result.categories.all { id -> categories.any { it.id==id } })
+            if(!result.categories.all { id -> categories.any { it.id==id } })
+                throw CloudFailure(CloudErrorKind.RESPONSE,AnalysisCode.RESPONSE_CATEGORIES)
             val one=categories.firstOrNull { it.id==result.categories.singleOrNull() }
             val note="Gemini: "+result.reason+
                 (if(isVideo) " Joint sampled-frame analysis at requested 10/50/90 percent offsets; duplicate/undecodable frames omitted. "+
@@ -106,16 +112,20 @@ class CloudAnalysisService(context: Context,
             return ClassificationScoreMetrics(one?.id ?: "__review__",one?.name ?: "Needs Review",0f,0f,0f,
                 needsManualReview=result.needsReview,primarySubjectNote=note,inferenceEngine="GEMINI",
                 proposedCategoryIds=result.categories,analysisJson=Json.encodeToString(result),
-                analysisStatus=if(result.needsReview) "NEEDS_REVIEW" else "PROPOSED",analysisModel=o.model)
+                analysisStatus=if(result.needsReview) "NEEDS_REVIEW" else "PROPOSED",analysisModel=o.model,
+                diagnosticCode=if(reused) AnalysisCode.CACHE_HIT.name else AnalysisCode.SUCCESS.name,
+                apiRequestsSent=trace.requestsSent,requestReservations=trace.reservations,responseHttpStatus=trace.httpStatus)
         } catch(cancelled: CancellationException) { throw cancelled }
         catch(error: CloudFailure) {
             if(batch.isNotBlank() && cacheKey.isNotBlank()) state.failed(batch,cacheKey,error.kind)
-            return failed(error.message.orEmpty(),o.model,if(error.kind in setOf(CloudErrorKind.BUDGET,CloudErrorKind.CONSENT)) "PENDING" else "FAILED")
+            return failed(error.diagnostic,o.model,trace,if(error.kind in setOf(CloudErrorKind.BUDGET,CloudErrorKind.CONSENT)) "PENDING" else "FAILED")
         } catch(_: Exception) {
             if(batch.isNotBlank() && cacheKey.isNotBlank()) state.failed(batch,cacheKey,CloudErrorKind.RESPONSE)
-            return failed(CloudFailure(CloudErrorKind.RESPONSE).message.orEmpty(),o.model)
+            return failed(AnalysisCode.INTERNAL,o.model,trace)
         }
     }
-    private fun failed(note: String,model: String,status: String="FAILED")=ClassificationScoreMetrics("__failed__","Analysis Failed",0f,0f,0f,
-        needsManualReview=true,primarySubjectNote=note,inferenceEngine="GEMINI",analysisStatus=status,analysisModel=model)
+    private fun failed(code: AnalysisCode,model: String,trace: CloudRequestTrace,status: String="FAILED")=
+        ClassificationScoreMetrics("__failed__",if(status=="PENDING") "Pending" else "Analysis Failed",0f,0f,0f,
+            needsManualReview=true,primarySubjectNote=code.message,inferenceEngine="GEMINI",analysisStatus=status,analysisModel=model,
+            diagnosticCode=code.name,apiRequestsSent=trace.requestsSent,requestReservations=trace.reservations,responseHttpStatus=trace.httpStatus)
 }
