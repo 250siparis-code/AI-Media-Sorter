@@ -27,6 +27,12 @@ import com.aimediasorter.app.ui.theme.*
 @Composable
 fun SettingsScreen(
     settings: AppSettings,
+    cloudUi: CloudUiState,
+    onCloudOptions: (com.aimediasorter.app.domain.cloud.CloudOptions) -> Unit,
+    onSaveKey: (String) -> Unit,
+    onClearKey: () -> Unit,
+    onRefreshModels: () -> Unit,
+    onRefreshCloudState: () -> Unit,
     sessions: List<AnalysisSessionEntity>,
     exportStatusMessage: String?,
     onLanguageChange: (String) -> Unit,
@@ -73,6 +79,8 @@ fun SettingsScreen(
                 )
             }
         }
+
+        CloudSettingsCard(settings.cloudOptions, cloudUi, onCloudOptions, onSaveKey, onClearKey, onRefreshModels, onRefreshCloudState)
 
         // Section 2: On-Device AI Model & Threshold
         SettingsSectionCard(title = stringResource(R.string.settings_section_ai)) {

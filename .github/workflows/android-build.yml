@@ -110,7 +110,10 @@ jobs:
           path: optimized-apks/optimized-armeabi-v7a-release-QA.apk
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
+<<<<<<< /tmp/prmerge/p4o0
 >>>>>>> /tmp/prmerge/t0
+=======
+>>>>>>> /tmp/prmerge/p4t0
         with:
           name: AIMediaSorter-debug-apk
           path: optimized-apks/*-debug.apk
