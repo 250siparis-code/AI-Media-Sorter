@@ -47,7 +47,7 @@ data class AppSettings(
     val pureBlackAmoled: Boolean = true
 )
 
-class SettingsRepository(private val context: Context) {
+class SettingsRepository(private val context: Context,private val store: DataStore<Preferences> = context.dataStore) {
 
     private object Keys {
         val CLOUD_OPTIONS = stringPreferencesKey("cloud_options_v1")
@@ -70,9 +70,9 @@ class SettingsRepository(private val context: Context) {
         val PURE_BLACK_AMOLED = booleanPreferencesKey("pure_black_amoled")
     }
 
-    val settingsFlow: Flow<AppSettings> = context.dataStore.data.map { prefs ->
+    val settingsFlow: Flow<AppSettings> = store.data.map { prefs ->
         AppSettings(
-            cloudOptions = runCatching { Json.decodeFromString<CloudOptions>(prefs[Keys.CLOUD_OPTIONS] ?: "{}") }.getOrDefault(CloudOptions()),
+            cloudOptions = runCatching { Json.decodeFromString<CloudOptions>(prefs[Keys.CLOUD_OPTIONS] ?: "{}") }.getOrDefault(CloudOptions()).copy(mode=com.aimediasorter.app.domain.cloud.AnalysisMode.GEMINI),
             analysisPaused = prefs[Keys.ANALYSIS_PAUSED] ?: false,
             sourceUri = prefs[Keys.SOURCE_URI] ?: "",
             destinationUri = prefs[Keys.DESTINATION_URI] ?: "",
@@ -107,13 +107,13 @@ class SettingsRepository(private val context: Context) {
         )
     }
 
-    suspend fun updateCloudOptions(options: CloudOptions) = context.dataStore.edit { options.validate(); it[Keys.CLOUD_OPTIONS] = Json.encodeToString(options) }
-    suspend fun updateAnalysisPaused(paused: Boolean) = context.dataStore.edit { it[Keys.ANALYSIS_PAUSED] = paused }
-    suspend fun updateSourceUri(uri: String) = context.dataStore.edit { it[Keys.SOURCE_URI] = uri }
-    suspend fun updateDestinationUri(uri: String) = context.dataStore.edit { it[Keys.DESTINATION_URI] = uri }
-    suspend fun updateIncludeSubfolders(enabled: Boolean) = context.dataStore.edit { it[Keys.INCLUDE_SUBFOLDERS] = enabled }
-    suspend fun updateMediaTypeFilter(filter: MediaTypeFilter) = context.dataStore.edit { it[Keys.MEDIA_TYPE_FILTER] = filter.name }
-    suspend fun toggleExtension(ext: String) = context.dataStore.edit { prefs ->
+    suspend fun updateCloudOptions(options: CloudOptions) = store.edit { options.validate(); it[Keys.CLOUD_OPTIONS] = Json.encodeToString(options.copy(mode=com.aimediasorter.app.domain.cloud.AnalysisMode.GEMINI)) }
+    suspend fun updateAnalysisPaused(paused: Boolean) = store.edit { it[Keys.ANALYSIS_PAUSED] = paused }
+    suspend fun updateSourceUri(uri: String) = store.edit { it[Keys.SOURCE_URI] = uri }
+    suspend fun updateDestinationUri(uri: String) = store.edit { it[Keys.DESTINATION_URI] = uri }
+    suspend fun updateIncludeSubfolders(enabled: Boolean) = store.edit { it[Keys.INCLUDE_SUBFOLDERS] = enabled }
+    suspend fun updateMediaTypeFilter(filter: MediaTypeFilter) = store.edit { it[Keys.MEDIA_TYPE_FILTER] = filter.name }
+    suspend fun toggleExtension(ext: String) = store.edit { prefs ->
         val current = (prefs[Keys.ENABLED_EXTENSIONS] ?: DefaultCategories.ALL_SUPPORTED_EXTENSIONS).toMutableSet()
         val normalized = ext.lowercase()
         if (current.contains(normalized)) {
@@ -123,15 +123,15 @@ class SettingsRepository(private val context: Context) {
         }
         prefs[Keys.ENABLED_EXTENSIONS] = current
     }
-    suspend fun updateOperationMode(mode: OperationMode) = context.dataStore.edit { it[Keys.OPERATION_MODE] = mode.name }
-    suspend fun updateTransferMethod(method: TransferMethod) = context.dataStore.edit { it[Keys.TRANSFER_METHOD] = method.name }
-    suspend fun updateConfidenceThreshold(threshold: Float) = context.dataStore.edit { it[Keys.CONFIDENCE_THRESHOLD] = threshold.coerceIn(0.25f, 0.95f) }
-    suspend fun updateAiEngineMode(mode: AiEngineMode) = context.dataStore.edit { it[Keys.AI_ENGINE_MODE] = mode.name }
-    suspend fun updateCustomOnnxModelPath(path: String) = context.dataStore.edit { it[Keys.CUSTOM_ONNX_PATH] = path }
-    suspend fun updateHardwareAcceleration(enabled: Boolean) = context.dataStore.edit { it[Keys.HARDWARE_ACCEL] = enabled }
-    suspend fun updateTimestampPolicy(policy: TimestampPolicy) = context.dataStore.edit { it[Keys.TIMESTAMP_POLICY] = policy.name }
-    suspend fun updateCollisionPolicy(policy: CollisionPolicy) = context.dataStore.edit { it[Keys.COLLISION_POLICY] = policy.name }
-    suspend fun updatePreviewBeforeMoving(enabled: Boolean) = context.dataStore.edit { it[Keys.PREVIEW_BEFORE_MOVING] = enabled }
-    suspend fun updateLanguageCode(lang: String) = context.dataStore.edit { it[Keys.LANGUAGE_CODE] = lang }
-    suspend fun updatePureBlackAmoled(enabled: Boolean) = context.dataStore.edit { it[Keys.PURE_BLACK_AMOLED] = enabled }
+    suspend fun updateOperationMode(mode: OperationMode) = store.edit { it[Keys.OPERATION_MODE] = mode.name }
+    suspend fun updateTransferMethod(method: TransferMethod) = store.edit { it[Keys.TRANSFER_METHOD] = method.name }
+    suspend fun updateConfidenceThreshold(threshold: Float) = store.edit { it[Keys.CONFIDENCE_THRESHOLD] = threshold.coerceIn(0.25f, 0.95f) }
+    suspend fun updateAiEngineMode(mode: AiEngineMode) = store.edit { it[Keys.AI_ENGINE_MODE] = mode.name }
+    suspend fun updateCustomOnnxModelPath(path: String) = store.edit { it[Keys.CUSTOM_ONNX_PATH] = path }
+    suspend fun updateHardwareAcceleration(enabled: Boolean) = store.edit { it[Keys.HARDWARE_ACCEL] = enabled }
+    suspend fun updateTimestampPolicy(policy: TimestampPolicy) = store.edit { it[Keys.TIMESTAMP_POLICY] = policy.name }
+    suspend fun updateCollisionPolicy(policy: CollisionPolicy) = store.edit { it[Keys.COLLISION_POLICY] = policy.name }
+    suspend fun updatePreviewBeforeMoving(enabled: Boolean) = store.edit { it[Keys.PREVIEW_BEFORE_MOVING] = enabled }
+    suspend fun updateLanguageCode(lang: String) = store.edit { it[Keys.LANGUAGE_CODE] = lang }
+    suspend fun updatePureBlackAmoled(enabled: Boolean) = store.edit { it[Keys.PURE_BLACK_AMOLED] = enabled }
 }

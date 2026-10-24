@@ -2,20 +2,21 @@ package com.aimediasorter.app
 import com.aimediasorter.app.data.local.CategoryEntity
 import com.aimediasorter.app.data.preferences.AppSettings
 import com.aimediasorter.app.domain.cloud.*
+import com.aimediasorter.app.domain.storage.OperationPlanner
+import com.aimediasorter.app.data.model.TransferMethod
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.junit.Assert.*
 import org.junit.Test
 
-/** Mocked protocol/policy tests; no live requests or accuracy claims. */
+/** Mocked official protocol; these tests make no semantic accuracy claims. */
 class CloudProtocolTest {
-    private val categories=listOf(CategoryEntity("food","Food","Main dish",0,"label",1,destinationSubfolder="Food"),
-        CategoryEntity("people","People","Main person",0,"label",1,destinationSubfolder="People"))
-    private val options=CloudOptions(mode=AnalysisMode.GEMINI,model="models/gemini-test",
-        estimatedMicrosPerAttempt=100,maxEstimatedBatchMicros=1000)
+    private val categories=listOf(CategoryEntity("food","Food","Meals",0,"label",1,destinationSubfolder="Food"),
+        CategoryEntity("people","People","Humans",0,"label",1,destinationSubfolder="People"))
+    private val options=CloudOptions(model="models/gemini-test")
     private val image=listOf(CloudImage(byteArrayOf(1,2,3)))
-    private val decision="""{"category":"food","short_description":"A meal","alternative_categories":[],"review_status":"CLEAR"}"""
+    private val decision="""{"categories":["food"],"subjects":[{"description":"A meal","importance":"main"}],"pose":"","scene":"indoor","details":[],"reason":"The meal is the main subject.","review_status":"CLEAR"}"""
     private fun response(d: String=decision,finish: String="STOP")=buildJsonObject {
         put("candidates",buildJsonArray { add(buildJsonObject {
             put("finishReason",finish)
@@ -24,112 +25,131 @@ class CloudProtocolTest {
         putJsonObject("usageMetadata") { put("promptTokenCount",10);put("candidatesTokenCount",7);put("thoughtsTokenCount",3) }
     }.toString()
     private fun failure(kind: CloudErrorKind,block: ()->Unit) {
-        try { block();fail("Expected a safe failure") } catch(e: CloudFailure) { assertEquals(kind,e.kind) }
+        try { block();fail("Expected safe rejection") } catch(e: CloudFailure) { assertEquals(kind,e.kind) }
     }
-    @Test fun defaultIsOfflineWithoutCloudConfiguration() {
-        assertEquals(AnalysisMode.OFFLINE,AppSettings().cloudOptions.mode)
-        assertFalse(CloudOptions().ready())
+    @Test fun defaultIsGeminiOnlyAndFreeTierDoesNotRequireFakeCostEstimate() {
+        assertEquals(AnalysisMode.GEMINI,AppSettings().cloudOptions.mode)
+        assertFalse(CloudOptions().ready());assertTrue(options.ready())
     }
-    @Test fun structuredRequestContainsConfiguredIdsImagesAndNoCredential() {
+    @Test fun structuredRequestContainsImagesAndCategoriesWithoutCategoryPriorityOrCredential() {
         val body=CloudProtocol.request(categories,image,options)
         val root=Json.parseToJsonElement(body).jsonObject
         assertEquals("application/json",root["generationConfig"]!!.jsonObject["responseMimeType"]!!.jsonPrimitive.content)
-        assertTrue(body.contains("\"food\""));assertTrue(body.contains("inlineData"))
-        assertFalse(body.contains("apiKey"));assertFalse(body.contains("confidence\":"))
+        assertTrue(body.contains("inlineData"));assertFalse(body.contains("\"priority\""))
+        assertFalse(body.contains("apiKey"));assertFalse(body.contains("\"confidence\""))
     }
-    @Test fun validResponseReportsTokensWithoutInventingConfidence() {
-        val result=CloudProtocol.parseResponse(response(),setOf("food","people"))
-        assertEquals("food",result.decision.category)
-        assertEquals(10,result.inputTokens);assertEquals(10,result.outputTokens)
+    @Test fun clearSingleCategoryHasNoFabricatedScore() {
+        val r=CloudProtocol.parseResponse(response(),setOf("food","people"))
+        assertEquals(listOf("food"),r.decision.categories);assertFalse(r.decision.needsReview)
+        assertEquals(10,r.inputTokens);assertEquals(10,r.outputTokens)
     }
-    @Test fun unknownCategoryIsRejected() {
-        failure(CloudErrorKind.RESPONSE) { CloudProtocol.parseResponse(response(decision.replace("\"food\"","\"invented\"")),setOf("food")) }
+    @Test fun allImportantCategoriesAreRetainedAndReviewIsDeterministic() {
+        val d=decision.replace("""["food"]""","""["people","food"]""")
+        val r=CloudProtocol.parseResponse(response(d),setOf("food","people")).decision
+        assertEquals(listOf("people","food"),r.categories);assertTrue(r.needsReview)
+        assertEquals("REQUIRED",r.review_status)
     }
-    @Test fun addedConfidenceFieldIsRejected() {
-        failure(CloudErrorKind.RESPONSE) { CloudProtocol.parseResponse(response(decision.dropLast(1)+""","confidence":0.99}"""),setOf("food")) }
+    @Test fun emptyAndExplicitlyAmbiguousResultsRequireReviewWithoutGuessingOther() {
+        val d=CloudProtocol.parseResponse(response(decision.replace("""["food"]""","[]")),setOf("food")).decision
+        assertTrue(d.categories.isEmpty());assertTrue(d.needsReview)
+        assertTrue(CloudProtocol.parseResponse(response(decision.replace("CLEAR","REQUIRED")),setOf("food")).decision.needsReview)
     }
-    @Test fun nonStringDescriptionsAreRejected() {
-        failure(CloudErrorKind.RESPONSE) { CloudProtocol.parseResponse(response(decision.replace("\"A meal\"","8")),setOf("food")) }
+    @Test fun backgroundDetailsDoNotBecomeApplicationSideCategories() {
+        val d=decision.replace("[]", """["background building","small snack"]""")
+        assertEquals(listOf("food"),CloudProtocol.parseResponse(response(d),setOf("food","people")).decision.categories)
     }
-    @Test fun duplicateOrUnconfiguredAlternativesAreRejected() {
-        for(alts in listOf("[\"food\"]","[\"people\",\"people\"]","[\"unknown\"]")) {
-            failure(CloudErrorKind.RESPONSE) { CloudProtocol.parseResponse(response(decision.replace("[]",alts)),setOf("food","people")) }
+    @Test fun unsupportedAndDuplicateCategoriesFailClosed() {
+        for(cats in listOf("""["unknown"]""","""["food","food"]""")) {
+            failure(CloudErrorKind.RESPONSE) { CloudProtocol.parseResponse(response(decision.replace("""["food"]""",cats)),setOf("food","people")) }
         }
     }
-    @Test fun unknownSubjectRetainsExplicitReviewSentinel() {
-        assertEquals("__review__",CloudProtocol.parseResponse(response(decision.replace("\"food\"","\"__review__\"").replace("CLEAR","REQUIRED")),setOf("food")).decision.category)
+    @Test fun missingFieldsExtraConfidenceAndNonStringDescriptionsAreRejected() {
+        for(d in listOf(decision.dropLast(1)+""","confidence":0.99}""",
+            decision.replace(""""pose":"","""",""),decision.replace(""""A meal"""","8"))) {
+            failure(CloudErrorKind.RESPONSE) { CloudProtocol.parseResponse(response(d),setOf("food")) }
+        }
     }
-    @Test fun truncatedAndBlockedResponsesFailClosed() {
+    @Test fun malformedTruncatedAndBlockedResponsesFailClosed() {
+        failure(CloudErrorKind.RESPONSE) { CloudProtocol.parseResponse("not JSON",setOf("food")) }
         failure(CloudErrorKind.RESPONSE) { CloudProtocol.parseResponse(response(finish="MAX_TOKENS"),setOf("food")) }
         failure(CloudErrorKind.BLOCKED) { CloudProtocol.parseResponse(response(finish="SAFETY"),setOf("food")) }
-        failure(CloudErrorKind.RESPONSE) { CloudProtocol.parseResponse("not JSON",setOf("food")) }
     }
-    @Test fun modelDiscoveryUsesAccessiblePaginatedGenerateContentModels() = runBlocking {
-        val paths=mutableListOf<String>()
-        val client=GeminiClient(CloudTransport { p,_,body ->
-            paths+=p;assertNull(body)
-            if(paths.size==1) CloudHttpResponse(200,"""{"models":[{"name":"models/gemini-accessible","supportedGenerationMethods":["generateContent"]},{"name":"models/embedding","supportedGenerationMethods":["embedContent"]}],"nextPageToken":"next"}""")
-            else CloudHttpResponse(200,"""{"models":[{"name":"models/gemini-second","supportedGenerationMethods":["generateContent"]}]}""")
+    @Test fun paginatedCatalogExcludesKnownIncompatibleModels()=runBlocking {
+        var calls=0
+        val client=GeminiClient(CloudTransport { _,_,body ->
+            calls++;assertNull(body)
+            if(calls==1) CloudHttpResponse(200,"""{"models":[{"name":"models/gemini-a","supportedGenerationMethods":["generateContent"]},{"name":"models/gemini-a-tts","supportedGenerationMethods":["generateContent"]},{"name":"models/gemini-text-only","inputModalities":["TEXT"],"supportedGenerationMethods":["generateContent"]}],"nextPageToken":"next"}""")
+            else CloudHttpResponse(200,"""{"models":[{"name":"models/gemini-b","supportedGenerationMethods":["generateContent"]}]}""")
         })
-        assertEquals(listOf("models/gemini-accessible","models/gemini-second"),client.models("test-key"))
-        assertTrue(paths[1].contains("pageToken=next"))
+        assertEquals(listOf("models/gemini-a","models/gemini-b"),client.models("synthetic"))
     }
-    @Test fun retriesReserveEveryAttemptAndHonorBackoff() = runBlocking {
+    @Test fun malformedCatalogIsNotSuccessfulAuthentication()=runBlocking {
+        failure(CloudErrorKind.RESPONSE) { runBlocking { GeminiClient(CloudTransport { _,_,_->CloudHttpResponse(200,"{}") }).models("synthetic") } }
+    }
+    @Test fun retriesReserveEveryAttemptAndHonorBackoff()=runBlocking {
         var requests=0;var reserved=0;val waits=mutableListOf<Long>()
-        val client=GeminiClient(CloudTransport { _,_,_ ->
-            requests++;if(requests==1) CloudHttpResponse(429,"quota",2) else CloudHttpResponse(200,response())
-        },{waits+=it})
-        val result=client.classify("test-key",options,categories,image) { reserved++ }
+        val client=GeminiClient(CloudTransport { _,_,_->requests++;if(requests==1) CloudHttpResponse(429,"quota",2) else CloudHttpResponse(200,response()) },{waits+=it})
+        client.classify("synthetic",options,categories,image) { reserved++ }
         assertEquals(2,requests);assertEquals(2,reserved);assertEquals(listOf(2000L),waits)
-        assertEquals("food",result.decision.category)
     }
-    @Test fun localBudgetFailurePreventsNetworkCall() = runBlocking {
-        var requests=0
-        val client=GeminiClient(CloudTransport { _,_,_ -> requests++;CloudHttpResponse(200,response()) })
-        failure(CloudErrorKind.BUDGET) { runBlocking {
-            client.classify("test-key",options,categories,image) { throw CloudFailure(CloudErrorKind.BUDGET) }
-        } }
-        assertEquals(0,requests)
+    @Test fun quotaHelpMentioningBillingPreservesQuotaStateAndBoundedBackoff()=runBlocking {
+        val quota="""{"error":{"code":429,"status":"RESOURCE_EXHAUSTED","message":"Quota exceeded; check your plan and billing details."}}"""
+        var requests=0;var reserved=0;val waits=mutableListOf<Long>()
+        val client=GeminiClient(CloudTransport { _,_,_->requests++;CloudHttpResponse(429,quota,2) },{waits+=it})
+        failure(CloudErrorKind.QUOTA) { runBlocking { client.classify("synthetic",options,categories,image) { reserved++ } } }
+        assertEquals(2,requests);assertEquals(2,reserved);assertEquals(listOf(2000L),waits)
+        failure(CloudErrorKind.QUOTA) { runBlocking { client.models("synthetic") } }
+        val server=GeminiClient(CloudTransport { _,_,_->CloudHttpResponse(503,"Service unavailable; see billing help.") })
+        failure(CloudErrorKind.SERVER) { runBlocking { server.classify("synthetic",options.copy(retries=0),categories,image) {} } }
     }
-    @Test fun authBillingAndExhaustedQuotaAreClearAndSanitized() = runBlocking {
-        for((code,body,kind) in listOf(Triple(401,"secret-user-key",CloudErrorKind.AUTH),
-            Triple(403,"billing secret-user-key",CloudErrorKind.BILLING),Triple(429,"quota",CloudErrorKind.QUOTA))) {
-            val client=GeminiClient(CloudTransport { _,_,_ -> CloudHttpResponse(code,body) },{})
-            try { client.classify("secret-user-key",options.copy(retries=0),categories,image) {};fail() }
-            catch(e: CloudFailure) { assertEquals(kind,e.kind);assertFalse(e.message!!.contains("secret-user-key")) }
+    @Test fun localBudgetFailurePreventsAnyUpload()=runBlocking {
+        var calls=0
+        val client=GeminiClient(CloudTransport { _,_,_->calls++;CloudHttpResponse(200,response()) })
+        failure(CloudErrorKind.BUDGET) { runBlocking { client.classify("synthetic",options,categories,image) { throw CloudFailure(CloudErrorKind.BUDGET) } } }
+        assertEquals(0,calls)
+    }
+    @Test fun httpFailuresAreDistinctAndNeverExposeProviderBodyOrKey()=runBlocking {
+        for((code,kind) in listOf(400 to CloudErrorKind.REQUEST,401 to CloudErrorKind.AUTH,403 to CloudErrorKind.AUTH,
+            404 to CloudErrorKind.MODEL,429 to CloudErrorKind.QUOTA,500 to CloudErrorKind.SERVER,503 to CloudErrorKind.SERVER)) {
+            val client=GeminiClient(CloudTransport { _,_,_->CloudHttpResponse(code,"synthetic-secret") })
+            try { client.classify("synthetic-secret",options.copy(retries=0),categories,image) {};fail() }
+            catch(e: CloudFailure) { assertEquals(kind,e.kind);assertFalse(e.message!!.contains("synthetic-secret")) }
         }
     }
-    @Test fun uncertainNetworkFailureIsNeverAutomaticallyRetried() = runBlocking {
+    @Test fun invalidKey400AndBillingHaveSpecificStates()=runBlocking {
+        for((code,body,kind) in listOf(Triple(400,"API_KEY_INVALID",CloudErrorKind.AUTH),Triple(403,"billing",CloudErrorKind.BILLING))) {
+            failure(kind) { runBlocking { GeminiClient(CloudTransport { _,_,_->CloudHttpResponse(code,body) }).classify("synthetic",options.copy(retries=0),categories,image) {} } }
+        }
+    }
+    @Test fun uncertainNetworkAndTimeoutAreNotAutomaticallyRetried()=runBlocking {
+        for(kind in listOf(CloudErrorKind.NETWORK,CloudErrorKind.TIMEOUT)) {
+            var calls=0
+            val client=GeminiClient(CloudTransport { _,_,_->calls++;throw CloudFailure(kind) })
+            failure(kind) { runBlocking { client.classify("synthetic",options,categories,image) {} } }
+            assertEquals(1,calls)
+        }
+    }
+    @Test fun cancellationStopsWithoutFallback()=runBlocking {
         var calls=0
-        val client=GeminiClient(CloudTransport { _,_,_ -> calls++;throw CloudFailure(CloudErrorKind.NETWORK) })
-        failure(CloudErrorKind.NETWORK) { runBlocking { client.classify("test-key",options,categories,image) {} } }
+        val client=GeminiClient(CloudTransport { _,_,_->calls++;throw CancellationException() })
+        try { client.classify("synthetic",options,categories,image) {};fail() } catch(_: CancellationException) {}
         assertEquals(1,calls)
     }
-    @Test fun cancellationPropagatesWithoutRetry() = runBlocking {
-        var calls=0
-        val client=GeminiClient(CloudTransport { _,_,_ -> calls++;throw CancellationException() })
-        try { client.classify("test-key",options,categories,image) {};fail() } catch(_: CancellationException) {}
-        assertEquals(1,calls)
+    @Test fun failedRowsRetryButCachedSuccessAndManualCorrectionsAreReusable() {
+        assertFalse(CloudApproval.shouldReuse(AnalysisMode.GEMINI,"Quota exceeded",1,false,2))
+        assertTrue(CloudApproval.shouldReuse(AnalysisMode.GEMINI,"No calibrated Gemini probability is available.",1,false,2))
+        assertFalse(CloudApproval.shouldReuse(AnalysisMode.GEMINI,"No calibrated Gemini probability is available.",1,false,604_800_002))
+        assertTrue(CloudApproval.shouldReuse(AnalysisMode.GEMINI,"Manual",1,true,999_999_999))
     }
-    @Test fun cloudOnlyCannotBypassIndividualTransferApproval() {
-        assertTrue(CloudApproval.requiresIndividualReview("GEMINI"))
-        assertTrue(CloudApproval.requiresIndividualReview("GEMINI_HYBRID_REVIEW"))
-        assertFalse(CloudApproval.requiresIndividualReview("GEMINI_HYBRID_AGREEMENT"))
+    @Test fun movePlanRequiresUserDestinationAndCopiesAllOthersFirst() {
+        try { OperationPlanner.build(7,setOf("people","food"),TransferMethod.MOVE,null);fail() } catch(_: IllegalArgumentException) {}
+        val plan=OperationPlanner.build(7,setOf("people","food"),TransferMethod.MOVE,"people")
+        assertEquals(listOf("food","people"),plan.map { it.categoryId })
+        assertEquals(listOf(TransferMethod.COPY,TransferMethod.MOVE),plan.map { it.method })
+        assertEquals(1,plan.count { it.method==TransferMethod.MOVE })
     }
-
-    @Test fun failedCloudRowsCanRetryInANewExplicitBatch() {
-        assertFalse(CloudApproval.shouldReuse(AnalysisMode.GEMINI,"Gemini: Rate or quota limit reached.",1000,false,1001))
-        assertFalse(CloudApproval.shouldReuse(AnalysisMode.HYBRID,"Gemini: Network outcome is uncertain. Offline result retained for review.",1000,false,1001))
-    }
-    @Test fun validCloudRowsRespectSevenDayFreshness() {
-        val note="Gemini: A meal. No calibrated Gemini probability is available."
-        assertTrue(CloudApproval.shouldReuse(AnalysisMode.GEMINI,note,1000,false,1001))
-        assertFalse(CloudApproval.shouldReuse(AnalysisMode.GEMINI,note,1000,false,604_801_001))
-        assertFalse(CloudApproval.shouldReuse(AnalysisMode.GEMINI,note,1000,false,999))
-        assertTrue(CloudApproval.shouldReuse(AnalysisMode.HYBRID,"Gemini selected unknown/ambiguous content.",1000,false,1001))
-    }
-    @Test fun manualDecisionsAndOfflineReuseArePreserved() {
-        assertTrue(CloudApproval.shouldReuse(AnalysisMode.GEMINI,"reviewed by user",1,true,900_000_000))
-        assertTrue(CloudApproval.shouldReuse(AnalysisMode.OFFLINE,"ML Kit",1,false,900_000_000))
+    @Test fun copyPlanNeverContainsMoveAndDoesNotCollapseMultipleCategories() {
+        val plan=OperationPlanner.build(7,setOf("people","food"),TransferMethod.COPY,null)
+        assertEquals(2,plan.size);assertTrue(plan.all { it.method==TransferMethod.COPY })
     }
 }

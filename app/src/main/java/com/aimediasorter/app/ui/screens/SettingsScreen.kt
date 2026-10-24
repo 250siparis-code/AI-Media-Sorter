@@ -14,6 +14,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.aimediasorter.app.R
@@ -33,6 +34,7 @@ fun SettingsScreen(
     onClearKey: () -> Unit,
     onRefreshModels: () -> Unit,
     onRefreshCloudState: () -> Unit,
+    onTestModel: () -> Unit,
     sessions: List<AnalysisSessionEntity>,
     exportStatusMessage: String?,
     onLanguageChange: (String) -> Unit,
@@ -54,7 +56,9 @@ fun SettingsScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(AmoledPureBlack)
+            .imePadding()
             .verticalScroll(rememberScrollState())
+            .testTag("settings-scroll")
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
@@ -80,59 +84,7 @@ fun SettingsScreen(
             }
         }
 
-        CloudSettingsCard(settings.cloudOptions, cloudUi, onCloudOptions, onSaveKey, onClearKey, onRefreshModels, onRefreshCloudState)
-
-        // Section 2: On-Device AI Model & Threshold
-        SettingsSectionCard(title = stringResource(R.string.settings_section_ai)) {
-            Text(text = stringResource(R.string.settings_model_info), style = MaterialTheme.typography.bodyMedium)
-            Spacer(modifier = Modifier.height(8.dp))
-
-            AiEngineMode.entries.filter { it != AiEngineMode.CUSTOM_MOBILECLIP_ONNX }.forEach { mode ->
-                val labelRes = when (mode) {
-                    AiEngineMode.HYBRID_ONNX_AND_MLKIT -> R.string.ai_engine_hybrid
-                    AiEngineMode.ONNX_EMBEDDER_ONLY -> R.string.ai_engine_onnx_only
-                    AiEngineMode.CUSTOM_MOBILECLIP_ONNX -> R.string.ai_engine_custom_clip
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(
-                        selected = settings.aiEngineMode == mode,
-                        onClick = { onAiEngineChange(mode) }
-                    )
-                    Text(text = stringResource(labelRes), style = MaterialTheme.typography.bodyMedium)
-                }
-            }
-
-            if (settings.aiEngineMode == AiEngineMode.ONNX_EMBEDDER_ONLY) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = stringResource(R.string.settings_hw_accel),
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.weight(1f)
-                )
-                Switch(
-                    checked = settings.hardwareAcceleration,
-                    onCheckedChange = onHardwareAccelChange
-                )
-            }
-
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = stringResource(R.string.settings_confidence_threshold, (settings.confidenceThreshold * 100).toInt()),
-                style = MaterialTheme.typography.labelMedium,
-                color = PrimaryPurpleLight
-            )
-            Slider(
-                value = settings.confidenceThreshold,
-                onValueChange = onConfidenceChange,
-                valueRange = 0.30f..0.90f
-            )
-        }
+        CloudSettingsCard(settings.cloudOptions, cloudUi, onCloudOptions, onSaveKey, onClearKey, onRefreshModels, onRefreshCloudState, onTestModel)
 
         // Section 3: Timestamp & Collision Policies
         SettingsSectionCard(title = stringResource(R.string.settings_section_safety)) {

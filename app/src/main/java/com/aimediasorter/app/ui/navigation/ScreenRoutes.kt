@@ -9,6 +9,8 @@ sealed class ScreenRoute(val route: String) {
     data object MediaDetails : ScreenRoute("media_details/{itemId}") {
         fun createRoute(itemId: Long) = "media_details/$itemId"
     }
+    data object Review : ScreenRoute("needs_review")
+    data object AdvancedResults : ScreenRoute("advanced_results")
     data object FileTransfer : ScreenRoute("file_transfer")
     data object Settings : ScreenRoute("settings")
 }

@@ -36,6 +36,10 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.AIMediaSorter">
 
+        <!-- This development phase has no offline classifier or SDK initialization at app startup.
+             Legacy inference is exercised only by explicitly initialized diagnostic tests. -->
+        <provider android:name="com.google.mlkit.common.internal.MlKitInitProvider" tools:node="remove" />
+
         <property android:name="android.media.PROPERTY_MEDIA_CAPABILITIES"
             android:resource="@xml/media_capabilities" />
 

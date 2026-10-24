@@ -17,6 +17,8 @@ import org.junit.runner.RunWith
 import java.io.File
 import java.security.MessageDigest
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 @RunWith(AndroidJUnit4::class)
 class CloudNativeTest {
@@ -30,15 +32,44 @@ class CloudNativeTest {
     @Test fun keystoreEncryptsKeyOutsideBackupsAndClearsIt() {
         val namespace="test-"+UUID.randomUUID()
         val vault=GeminiKeyVault(context,namespace)
-        val secret="SyntheticTestCredential_1234567890"
+        val secret="AQ."+"SyntheticCredential".repeat(32)
         try {
-            vault.save(secret);assertTrue(vault.hasKey());assertEquals(secret,vault.read())
+            vault.save(secret);assertTrue(vault.hasKey());assertEquals(secret,GeminiKeyVault(context,namespace).read())
             val encrypted=File(context.noBackupFilesDir,"gemini-key-"+namespace+".v1").readBytes()
             assertFalse(encrypted.toString(Charsets.ISO_8859_1).contains(secret))
             val revision=vault.revision
             vault.save(secret);assertEquals(revision,vault.revision)
             vault.clear();assertFalse(vault.hasKey());assertTrue(vault.revision>revision)
         } finally { vault.clear() }
+    }
+    @Test fun independentVaultInstancesCannotRaceReadWithReplacement() {
+        val namespace="concurrent-"+UUID.randomUUID()
+        val writer=GeminiKeyVault(context,namespace)
+        val reader=GeminiKeyVault(context,namespace)
+        val running=AtomicBoolean(true)
+        val failure=AtomicReference<Throwable?>(null)
+        var thread: Thread?=null
+        try {
+            writer.save("AQ.SyntheticInitialCredentialForConcurrentRead")
+            thread=Thread {
+                while(running.get()) {
+                    try { reader.snapshot() } catch(e: Throwable) { failure.compareAndSet(null,e) }
+                    Thread.yield()
+                }
+            }.apply { start() }
+            repeat(15) { index ->
+                val replacement="AQ.SyntheticReplacementCredential"+index
+                writer.save(replacement)
+                assertEquals(replacement,reader.read())
+                assertEquals(writer.revision,reader.snapshot().revision)
+            }
+            assertTrue("Concurrent vault reads must not remove an active AtomicFile replacement.",failure.get()==null)
+        } finally {
+            running.set(false)
+            thread?.join(5_000)
+            assertTrue("Vault reader must terminate.",thread?.isAlive!=true)
+            writer.clear()
+        }
     }
     @Test fun durableAttemptBudgetsCacheAndRevocationSurviveReopen() {
         val name="cloud-test-"+UUID.randomUUID()+".db"
@@ -53,7 +84,7 @@ class CloudNativeTest {
             assertTrue(db.usage().startsWith("2 /"))
             db.begin(batch,"original-hash-and-config")
             expect(CloudErrorKind.NETWORK) { db.begin(batch,"original-hash-and-config") }
-            val decision=CloudDecision("cat_food","Meal",emptyList(),"CLEAR")
+            val decision=CloudDecision(listOf("cat_food"),listOf(CloudSubject("Meal","main")),"","",emptyList(),"Meal","CLEAR")
             db.complete(batch,"original-hash-and-config",CloudResponse(decision,11,9))
             assertEquals(decision,db.cached("original-hash-and-config"))
             assertNull(db.cached("different-config"))
@@ -133,7 +164,7 @@ class CloudNativeTest {
             val response=client.classify(key,limits,listOf(cat),images) {
                 db.reserve(batch,"explicit-synthetic-live-test",vault.revision)
             }
-            assertTrue(response.decision.category in setOf("cat_other","__review__"))
+            assertTrue(response.decision.categories.all { it=="cat_other" })
         } finally { db.close();context.deleteDatabase(dbName);file.delete() }
     }
 }

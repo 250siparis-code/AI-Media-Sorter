@@ -22,3 +22,20 @@
 -keep class kotlin.** { *; }
 -keep class kotlinx.coroutines.** { *; }
 -keep class androidx.room.** { *; }
+
+# The acceptance APK constructs isolated stores using app-provided DataStore APIs.
+# Preserve this shared boundary when verifying the minified release.
+-keep class androidx.datastore.** { *; }
+
+# ActivityScenario acceptance crosses the app/test APK boundary using lifecycle state.
+-keep class androidx.lifecycle.** { *; }
+
+# Installed Compose acceptance uses the app-provided UI/runtime contracts across APKs.
+# Material/Foundation/Navigation and unrelated application code remain shrinkable.
+-keep class androidx.compose.runtime.** { *; }
+-keep class androidx.compose.ui.** { *; }
+-keep class androidx.compose.animation.core.InfiniteAnimationPolicy* { *; }
+
+# AndroidComposeTestRule's Activity bound is supplied by the target app.
+-keep class androidx.activity.ComponentActivity { *; }
+-keep class androidx.activity.ComponentActivity$* { *; }

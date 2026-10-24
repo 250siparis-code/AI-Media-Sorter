@@ -16,7 +16,7 @@ class GeminiHttpTransport : CloudTransport {
     }
     override suspend fun request(path: String, apiKey: String, body: String?): CloudHttpResponse {
         require(pathPattern.matches(path))
-        require(Regex("[A-Za-z0-9_-]{20,256}").matches(apiKey))
+        require(ApiKeyInput.canSave(apiKey) && apiKey == ApiKeyInput.normalized(apiKey))
         return suspendCancellableCoroutine { continuation ->
             val active=AtomicReference<HttpURLConnection?>()
             val future=executor.submit {
@@ -44,6 +44,8 @@ class GeminiHttpTransport : CloudTransport {
                     if(data.size>131_072) throw CloudFailure(CloudErrorKind.RESPONSE)
                     if(continuation.isActive) continuation.resume(CloudHttpResponse(code,data.toString(Charsets.UTF_8),
                         c.getHeaderField("Retry-After")?.toLongOrNull() ?: 0))
+                } catch (_: java.net.SocketTimeoutException) {
+                    if(continuation.isActive) continuation.resumeWithException(CloudFailure(CloudErrorKind.TIMEOUT))
                 } catch (known: CloudFailure) {
                     if(continuation.isActive) continuation.resumeWithException(known)
                 } catch (_: Exception) {
