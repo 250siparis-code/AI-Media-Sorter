@@ -18,7 +18,7 @@ class MediaAnalysisWorker(context: Context, parameters: WorkerParameters) : Coro
             val snapshot = Json.decodeFromString<AppSettings>(
                 inputData.getString(SETTINGS_JSON) ?: error("Missing confirmed settings snapshot."))
             setForeground(WorkerNotifications.create(applicationContext, false))
-            (applicationContext as AIMediaSorterApp).repository.executeMediaScanAndAnalysis(snapshot)
+            (applicationContext as AIMediaSorterApp).repository.executeMediaScanAndAnalysis(snapshot, inputData.getString("cloud_batch_id").orEmpty())
             Result.success()
         } catch (cancelled: CancellationException) {
             throw cancelled

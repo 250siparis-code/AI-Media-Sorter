@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+<<<<<<< /tmp/prmerge/p4o3
 <<<<<<< /tmp/prmerge/o2
     <!-- Media access permissions for Android 13+ (API 33+) -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
@@ -11,8 +12,11 @@
 =======
     <!-- Media access is limited to explicit SAF grants; inference stays local. -->
 >>>>>>> /tmp/prmerge/t2
+=======
+    <!-- Media access uses explicit SAF grants; optional cloud uploads require per-batch consent. -->
+>>>>>>> /tmp/prmerge/p4t3
     <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
-    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <!-- Foreground Service for long-running background media analysis & safe transfer -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -21,6 +25,7 @@
 
     <application
         android:name=".AIMediaSorterApp"
+        android:usesCleartextTraffic="false"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
