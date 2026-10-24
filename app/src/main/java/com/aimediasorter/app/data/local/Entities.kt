@@ -1,5 +1,6 @@
 package com.aimediasorter.app.data.local
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -65,7 +66,11 @@ data class MediaItemEntity(
     val destinationUriString: String? = null,
     val sha256Checksum: String? = null,
     val timestampVerified: Boolean? = null,
-    val timestampStatusNote: String? = null
+    val timestampStatusNote: String? = null,
+    @ColumnInfo(defaultValue = "''") val sourceRootUri: String = "",
+    @ColumnInfo(defaultValue = "''") val scanSessionId: String = "",
+    @ColumnInfo(defaultValue = "''") val analysisSignature: String = "",
+    @ColumnInfo(defaultValue = "'legacy'") val inferenceEngine: String = "legacy"
 )
 
 @Entity(tableName = "transfer_logs")
@@ -102,5 +107,24 @@ data class AnalysisSessionEntity(
     val uncertainCount: Int,
     val movedCount: Int,
     val failedCount: Int,
-    val status: String
+    val status: String,
+    @ColumnInfo(defaultValue = "''") val analysisSignature: String = ""
+)
+
+@Entity(tableName = "transfer_journal")
+data class TransferJournalEntity(
+    @PrimaryKey val operationId: String,
+    val itemId: Long,
+    val sourceRootUri: String,
+    val sourceUri: String,
+    val requestedMethod: String,
+    val phase: String,
+    val destinationUri: String?,
+    val stagingUri: String?,
+    val checksum: String?,
+    val originalModifiedMs: Long,
+    val destinationModifiedMs: Long,
+    val timestampPreserved: Boolean,
+    val updatedAtMs: Long,
+    val details: String
 )

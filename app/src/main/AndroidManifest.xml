@@ -2,12 +2,17 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+<<<<<<< /tmp/prmerge/o2
     <!-- Media access permissions for Android 13+ (API 33+) -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
 
     <!-- Required to preserve unredacted EXIF GPS & original location metadata during file copy -->
+=======
+    <!-- Media access is limited to explicit SAF grants; inference stays local. -->
+>>>>>>> /tmp/prmerge/t2
     <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
 
     <!-- Foreground Service for long-running background media analysis & safe transfer -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -16,7 +21,7 @@
 
     <application
         android:name=".AIMediaSorterApp"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@drawable/ic_launcher_foreground"
@@ -25,6 +30,9 @@
         android:roundIcon="@drawable/ic_launcher_foreground"
         android:supportsRtl="true"
         android:theme="@style/Theme.AIMediaSorter">
+
+        <property android:name="android.media.PROPERTY_MEDIA_CAPABILITIES"
+            android:resource="@xml/media_capabilities" />
 
         <activity
             android:name=".MainActivity"
@@ -36,6 +44,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service android:name="androidx.appcompat.app.AppLocalesMetadataHolderService"
+            android:enabled="false" android:exported="false">
+            <meta-data android:name="autoStoreLocales" android:value="true" />
+        </service>
 
         <!-- WorkManager Foreground Service declaration for Android 14+ -->
         <service

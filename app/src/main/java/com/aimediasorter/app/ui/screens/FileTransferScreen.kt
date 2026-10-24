@@ -26,6 +26,7 @@ fun FileTransferScreen(
     operationMode: OperationMode,
     transferMethod: TransferMethod,
     transferProgress: LiveTransferProgress,
+    onCancelTransfer: () -> Unit,
     onConfirmAndExecuteTransfer: (Boolean) -> Unit
 ) {
     var showConfirmDialog by remember { mutableStateOf(false) }
@@ -36,13 +37,14 @@ fun FileTransferScreen(
     val readyCount = mediaItems.count {
         !it.isExcludedFromTransfer &&
         (!it.needsManualReview || it.isManuallyCorrected) &&
-        it.transferStatus != TransferItemStatus.COMPLETED_VERIFIED.name
+        it.transferStatus in setOf(TransferItemStatus.PENDING.name, TransferItemStatus.FAILED.name, TransferItemStatus.CANCELLED.name) &&
+        it.sha256Checksum != null
     }
 
     val groupedByFolder = remember(mediaItems) {
         mediaItems
             .filter { !it.isExcludedFromTransfer }
-            .groupBy { it.effectiveCategoryName }
+            .groupBy { it.proposedRelativePath.substringBeforeLast('/', it.effectiveCategoryName) }
     }
 
     Column(
@@ -161,11 +163,24 @@ fun FileTransferScreen(
             }
         }
 
+        if (transferProgress.isRunning) {
+            OutlinedButton(onClick = onCancelTransfer, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.btn_cancel))
+            }
+        }
+        if (transferProgress.statusMessage.isNotBlank()) {
+            Text(stringResource(R.string.transfer_status_notice) + "\n" + transferProgress.statusMessage,
+                style = MaterialTheme.typography.labelMedium)
+        }
+        if (transferProgress.processedCount > 0) {
+            Text(stringResource(R.string.transfer_retained_fmt, transferProgress.sourceRetainedCount, transferProgress.skippedCount),
+                style = MaterialTheme.typography.labelMedium, color = StatusAmber)
+        }
         Spacer(modifier = Modifier.height(14.dp))
 
         Button(
             onClick = { showConfirmDialog = true },
-            enabled = readyCount > 0 && !transferProgress.isRunning,
+            enabled = operationMode == OperationMode.MOVE_FILES && readyCount > 0 && !transferProgress.isRunning,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(54.dp),

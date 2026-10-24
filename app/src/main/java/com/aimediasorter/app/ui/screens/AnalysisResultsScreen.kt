@@ -1,5 +1,8 @@
 package com.aimediasorter.app.ui.screens
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -31,6 +34,8 @@ fun AnalysisResultsScreen(
     mediaItems: List<MediaItemEntity>,
     categories: List<CategoryEntity>,
     lastExportResult: ExportBundleResult?,
+    onSaveExport: (Uri) -> Unit,
+    isAnalysisRunning: Boolean,
     onInspectItem: (Long) -> Unit,
     onQuickReassignCategory: (Long, CategoryEntity) -> Unit,
     onExportCsv: (Set<Long>) -> Unit,
@@ -40,12 +45,15 @@ fun AnalysisResultsScreen(
     onExportAll: (Set<Long>) -> Unit,
     onProceedToTransfer: () -> Unit
 ) {
+    val saveExport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        if (uri != null) onSaveExport(uri)
+    }
     var selectedCategoryFilter by remember { mutableStateOf<String?>(null) }
     var filterNeedsReviewOnly by remember { mutableStateOf(false) }
     var reassignTargetItem by remember { mutableStateOf<MediaItemEntity?>(null) }
 
     // Track selected file IDs for Termux & Manifest export (defaults to all non-excluded items)
-    var selectedExportIds by remember(mediaItems) {
+    var selectedExportIds by remember(mediaItems.map { it.id }) {
         mutableStateOf(
             mediaItems.filter { !it.isExcludedFromTransfer }.map { it.id }.toSet()
         )
@@ -116,7 +124,7 @@ fun AnalysisResultsScreen(
                             selectedCategoryFilter = if (selectedCategoryFilter == cat.id) null else cat.id
                             filterNeedsReviewOnly = false
                         },
-                        label = { Text("${cat.name} ($count)") }
+                        label = { Text("${categoryDisplayName(cat.id, cat.name)} ($count)") }
                     )
                 }
             }
@@ -211,7 +219,7 @@ fun AnalysisResultsScreen(
                 ) {
                     OutlinedButton(
                         onClick = { onExportCsv(selectedExportIds) },
-                        enabled = activeExportItems.isNotEmpty(),
+                        enabled = activeExportItems.isNotEmpty() && !isAnalysisRunning,
                         border = BorderStroke(1.dp, PrimaryPurple),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                     ) {
@@ -219,7 +227,7 @@ fun AnalysisResultsScreen(
                     }
                     OutlinedButton(
                         onClick = { onExportJson(selectedExportIds) },
-                        enabled = activeExportItems.isNotEmpty(),
+                        enabled = activeExportItems.isNotEmpty() && !isAnalysisRunning,
                         border = BorderStroke(1.dp, PrimaryPurple),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                     ) {
@@ -227,7 +235,7 @@ fun AnalysisResultsScreen(
                     }
                     OutlinedButton(
                         onClick = { onExportMoveScript(selectedExportIds) },
-                        enabled = activeExportItems.isNotEmpty(),
+                        enabled = activeExportItems.isNotEmpty() && !isAnalysisRunning,
                         border = BorderStroke(1.dp, PrimaryPurple),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                     ) {
@@ -235,7 +243,7 @@ fun AnalysisResultsScreen(
                     }
                     OutlinedButton(
                         onClick = { onExportCopyScript(selectedExportIds) },
-                        enabled = activeExportItems.isNotEmpty(),
+                        enabled = activeExportItems.isNotEmpty() && !isAnalysisRunning,
                         border = BorderStroke(1.dp, PrimaryPurple),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                     ) {
@@ -243,7 +251,7 @@ fun AnalysisResultsScreen(
                     }
                     Button(
                         onClick = { onExportAll(selectedExportIds) },
-                        enabled = activeExportItems.isNotEmpty(),
+                        enabled = activeExportItems.isNotEmpty() && !isAnalysisRunning,
                         colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                     ) {
@@ -252,10 +260,13 @@ fun AnalysisResultsScreen(
                 }
 
                 if (lastExportResult != null) {
+                    OutlinedButton(onClick = { saveExport.launch("AI_Media_Sorter_export.zip") }) {
+                        Text(stringResource(R.string.export_save_zip))
+                    }
                     Text(
                         text = stringResource(
                             R.string.export_ops_result_banner,
-                            lastExportResult.exportDirectoryPath,
+                            stringResource(R.string.export_ready),
                             lastExportResult.includedFilesCount
                         ),
                         style = MaterialTheme.typography.bodyMedium,
@@ -301,7 +312,7 @@ fun AnalysisResultsScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = "${cat.name} (/${cat.destinationSubfolder})",
+                                text = "${categoryDisplayName(cat.id, cat.name)} (/${cat.destinationSubfolder})",
                                 color = if (cat.id == target.effectiveCategoryId) PrimaryPurpleLight else TextPrimaryWhite
                             )
                         }
@@ -344,7 +355,7 @@ private fun MediaResultGridCard(
                     .background(AmoledElevatedSurface)
             ) {
                 AsyncImage(
-                    model = item.uriString,
+                    model = item.destinationUriString ?: item.uriString,
                     contentDescription = item.fileName,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
@@ -404,15 +415,14 @@ private fun MediaResultGridCard(
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = item.effectiveCategoryName,
+                    text = categoryDisplayName(item.effectiveCategoryId, item.effectiveCategoryName),
                     style = MaterialTheme.typography.titleMedium,
                     color = PrimaryPurpleLight
                 )
                 Text(
                     text = stringResource(
                         R.string.confidence_calibrated_fmt,
-                        (item.calibratedConfidence * 100).toInt(),
-                        item.rawSimilarityScore
+                        (item.calibratedConfidence * 100).toInt()
                     ),
                     style = MaterialTheme.typography.bodyMedium
                 )

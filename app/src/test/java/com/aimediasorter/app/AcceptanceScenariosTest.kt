@@ -1,138 +1,209 @@
 package com.aimediasorter.app
 
-import com.aimediasorter.app.data.local.CategoryEntity
-import com.aimediasorter.app.data.model.ClassificationScoreMetrics
-import com.aimediasorter.app.data.model.DefaultCategories
-import com.aimediasorter.app.data.model.FrameClassificationSample
-import com.aimediasorter.app.domain.ai.PrimarySubjectDisambiguator
+import com.aimediasorter.app.data.model.CollisionPolicy
+import com.aimediasorter.app.data.model.TimestampPolicy
+import com.aimediasorter.app.data.model.TransferMethod
+import com.aimediasorter.app.domain.storage.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import java.io.File
+import java.io.OutputStream
 import java.nio.file.Files
 import java.security.MessageDigest
-import kotlin.math.abs
 
+/** Exercises production transfer code with isolated real temporary files. */
 class AcceptanceScenariosTest {
-
-    private lateinit var categories: List<CategoryEntity>
-    private lateinit var disambiguator: PrimarySubjectDisambiguator
-
-    @Before
-    fun setUp() {
-        categories = DefaultCategories.ALL.map { spec ->
-            CategoryEntity(
-                id = spec.id,
-                name = spec.defaultName,
-                description = spec.defaultDescription,
-                colorHex = spec.colorHex,
-                iconKey = spec.iconKey,
-                priority = spec.priority,
-                isEnabled = true,
-                isDefault = true,
-                destinationSubfolder = spec.subfolderName
-            )
-        }
-        val sampleVocabJson = """
-            {
-              "model_name": "AIMediaSorter-MobileEmbedder-v1",
-              "license": "Apache-2.0",
-              "embedding_dim": 32,
-              "feature_dim": 64,
-              "default_categories": ["People","Food","Vehicles","Animals","Nature","Buildings","Technology","Text","Other"],
-              "token_embeddings": {
-                "car": [0,0,0,0, 0,0,0,0, 0.5,0.5,0.5,0.5, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
-                "food": [0,0,0,0, 0.5,0.5,0.5,0.5, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
-                "portrait": [0.5,0.5,0.5,0.5, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
-                "dog": [0,0,0,0, 0,0,0,0, 0,0,0,0, 0.5,0.5,0.5,0.5, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0]
-              }
+    private lateinit var root: File
+    private lateinit var sourceFile: File
+    private lateinit var destinationRoot: File
+    private val payload = ByteArray(25000) { (it % 251).toByte() }
+    private val historical = 1684074130123L
+    private val engine = VerifiedTransferEngine()
+    @Before fun prepare() {
+        root = Files.createTempDirectory("aimediasorter-safety-").toFile()
+        sourceFile = File(root, "source/İstanbul 'Kahvaltı' \$100.jpg")
+        check(sourceFile.parentFile!!.mkdirs())
+        sourceFile.writeBytes(payload)
+        check(sourceFile.setLastModified(historical))
+        destinationRoot = File(root, "destination")
+    }
+    @After fun clean() { root.deleteRecursively() }
+    private fun checksum(): String = MessageDigest.getInstance("SHA-256")
+        .digest(payload).joinToString("") { "%02x".format(it) }
+    private suspend fun transfer(
+        method: TransferMethod = TransferMethod.MOVE,
+        source: TransferDocument = LocalTransferDocument(sourceFile),
+        directory: TransferDirectory = LocalTransferDirectory(File(destinationRoot, "Food"), destinationRoot),
+        policy: CollisionPolicy = CollisionPolicy.RENAME_WITH_SUFFIX,
+        checkpoint: suspend (TransferCheckpoint) -> Unit = {}
+    ): VerifiedTransferReceipt = engine.transfer(
+        source, directory, sourceFile.name, "image/jpeg", method, policy,
+        TimestampPolicy.FALLBACK_COPY_KEEP_ORIGINAL, checksum(), payload.size.toLong(), historical, checkpoint
+    )
+    @Test fun copyPreservesSourceBytesAndFilesystemTime() = runBlocking {
+        val result = transfer(method = TransferMethod.COPY)
+        assertTrue(sourceFile.exists())
+        val destination = File(result.destination!!.id)
+        assertArrayEquals(payload, destination.readBytes())
+        assertEquals(historical, destination.lastModified())
+        assertTrue(result.timestamp!!.preserved)
+    }
+    @Test fun moveDeletesSourceOnlyAfterVerifiedReadback() = runBlocking {
+        val result = transfer()
+        assertFalse(sourceFile.exists())
+        assertEquals(TransferMethod.MOVE, result.actualMethod)
+        assertFalse(result.sourceRetained)
+        assertArrayEquals(payload, File(result.destination!!.id).readBytes())
+    }
+    @Test fun concurrentCollisionPreservesExistingDestination() = runBlocking {
+        lateinit var existing: File
+        val result = transfer(checkpoint = { stage ->
+            if (stage.phase == "STAGING") {
+                existing = File(destinationRoot, "Food/" + sourceFile.name)
+                existing.writeText("concurrent unrelated media")
             }
-        """.trimIndent()
-        disambiguator = PrimarySubjectDisambiguator(sampleVocabJson)
+        })
+        assertEquals("concurrent unrelated media", existing.readText())
+        assertNotEquals(existing.canonicalPath, result.destination!!.id)
+        assertArrayEquals(payload, File(result.destination!!.id).readBytes())
     }
-
-    @Test
-    fun testPrimarySubjectDisambiguation_personHoldingFood_classifiesAsFood() {
-        // Both People (index 0) and Food (index 1) have high raw probabilities,
-        // and central ROI food feature (index 8) is active.
-        val onnxProbs = floatArrayOf(0.44f, 0.42f, 0.02f, 0.02f, 0.02f, 0.02f, 0.02f, 0.02f, 0.02f)
-        val emb32 = FloatArray(32).apply {
-            for (i in 0..3) this[i] = 0.5f
-            for (i in 4..7) this[i] = 0.5f
-        }
-        val feat64 = FloatArray(64).apply {
-            for (i in 0..7) this[i] = 0.60f
-            for (i in 8..15) this[i] = 0.78f // Strong central food plate feature
-        }
-
-        val result = disambiguator.evaluateAndDisambiguate(
-            enabledCategories = categories,
-            onnxCategoryProbs = onnxProbs,
-            imageEmbedding32D = emb32,
-            visualFeatures64D = feat64,
-            mlKitLabels = mapOf("Person" to 0.75f, "Food" to 0.80f),
-            confidenceThreshold = 0.55f
-        )
-
-        assertEquals("cat_food", result.categoryId)
-        assertEquals("Food", result.categoryName)
-        assertTrue(result.primarySubjectNote.contains("Food"))
+    @Test fun skipDoesNotClaimTimestampVerification() = runBlocking {
+        val dir = LocalTransferDirectory(File(destinationRoot, "Food"), destinationRoot)
+        File(destinationRoot, "Food/" + sourceFile.name).writeText("different")
+        val result = transfer(directory = dir, policy = CollisionPolicy.SKIP_EXISTING)
+        assertTrue(result.skipped)
+        assertNull(result.timestamp)
+        assertTrue(sourceFile.exists())
     }
-
-    @Test
-    fun testFileMovePreservesBytesAndModificationTimestampAndHandlesCollisions() {
-        val tempRoot = Files.createTempDirectory("aimediasorter_test").toFile()
+    @Test fun changedSourceBeforeDeletionIsPreserved() = runBlocking {
         try {
-            val srcDir = File(tempRoot, "source").apply { mkdirs() }
-            val dstDir = File(tempRoot, "dest/Vehicles").apply { mkdirs() }
-
-            val originalFile = File(srcDir, "car_photo.jpg")
-            val payload = ByteArray(8192) { (it % 251).toByte() }
-            originalFile.writeBytes(payload)
-
-            val historicalTimestamp = 1684074130000L // 2023-05-14T14:22:10Z
-            assertTrue(originalFile.setLastModified(historicalTimestamp))
-
-            val srcSha = MessageDigest.getInstance("SHA-256")
-                .digest(originalFile.readBytes())
-                .joinToString("") { "%02x".format(it) }
-
-            // Create existing file in destination to trigger collision suffix resolution
-            val existingFile = File(dstDir, "car_photo.jpg")
-            existingFile.writeBytes("different_existing_content".toByteArray())
-
-            // Resolve collision name
-            val resolvedDest = File(dstDir, "car_photo_1.jpg")
-            originalFile.inputStream().use { input ->
-                resolvedDest.outputStream().use { output ->
-                    input.copyTo(output)
+            transfer(checkpoint = {
+                if (it.phase == "SOURCE_DELETE_PENDING") sourceFile.writeText("newer source")
+            })
+            fail("Changed source must not be deleted")
+        } catch (_: IllegalArgumentException) {
+            assertEquals("newer source", sourceFile.readText())
+        }
+    }
+    @Test fun destinationChangedDuringDeletionCheckpointNeverRemovesOriginal() = runBlocking {
+        try {
+            transfer(checkpoint = {
+                if (it.phase == "SOURCE_DELETE_PENDING") File(it.destinationId!!).writeText("new destination content")
+            })
+            fail("Destination changes after checkpoint must block deletion")
+        } catch (_: IllegalArgumentException) {
+            assertArrayEquals(payload, sourceFile.readBytes())
+        }
+    }
+    @Test fun sameSizeDestinationCorruptionIsDetected() = runBlocking {
+        val delegate = LocalTransferDirectory(File(destinationRoot, "Food"), destinationRoot)
+        val corrupting = object : TransferDirectory by delegate {
+            override fun createExclusive(name: String, mimeType: String): TransferDocument? {
+                val document = delegate.createExclusive(name, mimeType) ?: return null
+                if (name.startsWith(".aimediasorter-")) return document
+                return object : TransferDocument by document {
+                    override fun sync(output: OutputStream) {
+                        document.sync(output)
+                        File(document.id).writeBytes(ByteArray(payload.size) { 42 })
+                    }
                 }
             }
-            assertTrue(resolvedDest.setLastModified(historicalTimestamp))
-
-            val dstSha = MessageDigest.getInstance("SHA-256")
-                .digest(resolvedDest.readBytes())
-                .joinToString("") { "%02x".format(it) }
-
-            assertEquals(srcSha, dstSha)
-            assertTrue(abs(resolvedDest.lastModified() - historicalTimestamp) <= 2000L)
-            assertEquals("different_existing_content", String(existingFile.readBytes()))
-        } finally {
-            tempRoot.deleteRecursively()
+        }
+        try {
+            transfer(directory = corrupting)
+            fail("Same-size corruption must not pass verification")
+        } catch (_: IllegalArgumentException) {
+            assertArrayEquals(payload, sourceFile.readBytes())
         }
     }
+    @Test fun timestampFailureKeepsOriginal() = runBlocking {
+        val delegate = LocalTransferDirectory(File(destinationRoot, "Food"), destinationRoot)
+        val restricted = object : TransferDirectory by delegate {
+            override fun createExclusive(name: String, mimeType: String): TransferDocument? {
+                val document = delegate.createExclusive(name, mimeType) ?: return null
+                return object : TransferDocument by document {
+                    override fun setTimestamp(originalMs: Long) =
+                        TimestampVerificationResult(false, originalMs, 0, "Provider denied modification time.")
+                }
+            }
+        }
+        val result = transfer(directory = restricted)
+        assertTrue(sourceFile.exists())
+        assertTrue(result.sourceRetained)
+        assertEquals(TransferMethod.COPY, result.actualMethod)
+    }
+<<<<<<< /tmp/prmerge/o7
 
     @Test
     fun testPosixSingleQuoteEscaping_preservesUnicodeSpacesQuotesAndDollarSigns() {
         val rawName = "İstanbul Boğazı 'Kahvaltı' \$100 & (Test).jpg"
         val escaped = "'" + rawName.replace("'", "'\\''") + "'"
         assertEquals("'İstanbul Boğazı '\\''Kahvaltı'\\'' \$100 & (Test).jpg'", escaped)
+=======
+    @Test fun deletionFailureIsReportedAsCopy() = runBlocking {
+        val delegate = LocalTransferDocument(sourceFile)
+        val restricted = object : TransferDocument by delegate {
+            override fun delete(): Boolean = false
+        }
+        val result = transfer(source = restricted)
+        assertTrue(sourceFile.exists())
+        assertTrue(result.sourceRetained)
+        assertEquals(TransferMethod.COPY, result.actualMethod)
+        assertTrue(result.details.contains("MOVE was not completed"))
+>>>>>>> /tmp/prmerge/t7
     }
-
-    @Test
-    fun testSafUriDetection_flagsContentUriAsSafRestricted() {
-        val contentUri = "content://com.android.externalstorage.documents/document/3132-6430%3ADCIM%2Fphoto.jpg"
-        val isSafOnly = !contentUri.contains("primary:") && contentUri.startsWith("content://")
-        assertTrue(isSafOnly)
+    @Test fun cancellationPreservesOriginalAndVerifiedCopy() = runBlocking {
+        try {
+            transfer(checkpoint = {
+                if (it.phase == "DESTINATION_VERIFIED") throw CancellationException("cancel")
+            })
+            fail("Cancellation must propagate")
+        } catch (_: CancellationException) {
+            assertArrayEquals(payload, sourceFile.readBytes())
+            assertArrayEquals(payload, File(destinationRoot, "Food/" + sourceFile.name).readBytes())
+            assertTrue(File(destinationRoot, "Food").listFiles()!!.none { it.name.endsWith(".part") })
+        }
+    }
+    @Test fun changedAnalysisChecksumPreventsTransfer() = runBlocking {
+        sourceFile.writeText("changed before transfer")
+        try {
+            transfer()
+            fail("Changed input must require re-analysis")
+        } catch (_: IllegalArgumentException) {
+            assertEquals("changed before transfer", sourceFile.readText())
+        }
+    }
+    @Test fun directoryTraversalIsRejected() {
+        try { SafeRelativePath.segments("../source"); fail("Traversal must be rejected") }
+        catch (_: IllegalArgumentException) {}
+        try { LocalTransferDirectory(File(destinationRoot, "../../escape"), destinationRoot); fail("Escape must be rejected") }
+        catch (_: IllegalArgumentException) {}
+    }
+    @Test fun providerReturningSourceAsStagingNeverDeletesSource() = runBlocking {
+        val source = LocalTransferDocument(sourceFile)
+        val unsafe = object : TransferDirectory {
+            override fun find(name: String): TransferDocument? = null
+            override fun createExclusive(name: String, mimeType: String): TransferDocument = source
+        }
+        try {
+            transfer(source = source, directory = unsafe)
+            fail("Source alias must be rejected")
+        } catch (_: IllegalArgumentException) {
+            assertArrayEquals(payload, sourceFile.readBytes())
+        }
+    }
+    @Test fun unknownStableIdentityKeepsOriginal() = runBlocking {
+        val delegate = LocalTransferDocument(sourceFile)
+        val opaque = object : TransferDocument by delegate {
+            override fun identityKey(): String? = null
+        }
+        val result = transfer(source = opaque)
+        assertTrue(sourceFile.exists())
+        assertEquals(TransferMethod.COPY, result.actualMethod)
+        assertTrue(result.sourceRetained)
     }
 }
