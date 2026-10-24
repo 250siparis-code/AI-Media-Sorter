@@ -50,8 +50,6 @@ Without a path argument the script emits a JSON snapshot to stdout, so the runne
 
 The native runner must preserve the original Gradle exit status while collecting diagnostics. No failed test is turned into a successful result, no test is disabled, and no retry-to-green is a remedy.
 
-## Remaining conclusion
-
 ## Recovery-run recurrence
 
 Recovery commit `b93dc93` was tested in push run [40136971532](https://github.com/BlackWare-AI/AI-Media-Sorter/actions/runs/40136971532) and PR run [40137030466](https://github.com/BlackWare-AI/AI-Media-Sorter/actions/runs/40137030466). Push job [121000436614](https://github.com/BlackWare-AI/AI-Media-Sorter/actions/runs/40136971532/job/121000436614) reproduced SIGSEGV at PC zero through Compose JIT placement/AndroidComposeView during `VirtualGalleryUiTest.virtualFolderOpensRealThumbnailAndFullScreenPreview` (68 tests, 1 failure, 1 explicitly unconfigured live-test skip). The matching PR debug profile passed. This recurrence is retained as a failure, not erased by the later fixture correction.
@@ -59,6 +57,14 @@ Recovery commit `b93dc93` was tested in push run [40136971532](https://github.co
 The new snapshot confirms the same API35 fingerprint, libart BuildId and emulator build above, active ART APEX `com.google.android.art` version `352090000`, actual 16384-byte pages and JIT enabled. Google Play Services also crashed in ART ResolveMethod/OptimizingCompiler/JitCompile at 22:08:56 UTC, before the application's crash at 22:12:12 UTC. This cross-process evidence strengthens the runtime/image investigation but does not establish an application-independent root cause or an ARM64 device fix. API36 debug comparisons passed; they do not replace API35 acceptance.
 
 All first-run release jobs passed their instrumentation suites but subsequently failed the newly added co-install check because the instrumentation target was removed at teardown. The next commit corrects that fixture by installing QA explicitly after instrumentation; it changes no application class, library, JIT setting, model or transfer algorithm. New CI after that code change is required and is not presented as a remedy for the unrelated intermittent crash.
+
+## Second recovery run (709ff80)
+
+Push [40139943594](https://github.com/BlackWare-AI/AI-Media-Sorter/actions/runs/40139943594) and PR [40139947359](https://github.com/BlackWare-AI/AI-Media-Sorter/actions/runs/40139947359) both completed their build and all three R8-release profiles successfully, including the corrected co-install/private-data smoke. API34 debug and API35/4KB debug passed in both. No failed job was retried.
+
+Both API35/16KB debug jobs failed again. Push job121009366476 reported 40 tests/1 failure/1 skip: SIGSEGV in JIT `CoroutineContext.DefaultImpls.plus` / `CombinedContext.plus` / `withContext`, during the 36-real-JPEG **mock-response** regression; Google Play Services had already aborted in ART ProfileSaver. PR job121009379522 reported 23 tests/1 failure/1 skip: `ReferenceQueueDaemon` failed while `DiagnosticsUiTest.clearRequiresExplicitConfirmationAndCanBeCancelled` ran. These are process failures, not failing category assertions or live Gemini calls.
+
+API36/16KB debug passed in the PR run but failed in push job121009366586 (68 tests/1 failure/1 skip). This was a distinct 10-second `GeminiSettingsUiTest` timeout awaiting replacement-key readback after Activity restart, without a captured process crash. Its input-method log also recorded an asynchronous InputConnection timeout. That does not prove the timeout's root cause. The installed-control test now explicitly hides the IME through framework APIs and waits for hidden insets before scrolling/touch-clicking Save; persistence/feedback/restart/replace/delete assertions remain intact. A future persistence timeout reports only fixed boolean control/feedback state, never key/semantics contents. Neither a longer persistence deadline, direct callback invocation nor test disabling is used. Passing revised tests cannot retrospectively establish why the old click/readback timed out.
 
 ## Open evidence gate
 
